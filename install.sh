@@ -50,6 +50,12 @@ PROJECT=${PROJECT:-${ROMEO_PROJECT:-}}
 
 # ---------------------------------------------------------------- this computer
 
+# dsh runs on your computer and reaches ROMEO over ssh: on a ROMEO login node there is nothing to install.
+if [ -x "${DSH_ROMEO_RLT_CHECK:-$RLT_DEFAULT}" ]; then
+  die "this is ROMEO ($(hostname -s)): run install.sh on your own computer (macOS or Linux), the one you ssh to ROMEO from.
+       There: git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/install.sh"
+fi
+
 step "Tools on this computer"
 for tool in ssh curl; do command -v $tool >/dev/null || die "$tool is missing"; done
 command -v node >/dev/null || die "Node.js 20 or later is needed for dsh: https://nodejs.org (or: brew install node)"

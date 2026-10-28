@@ -165,5 +165,9 @@ if command -v shellcheck >/dev/null; then
   out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" 2>&1); check "shellcheck" test -z "$out"
 fi
 
+out=$(DSH_ROMEO_RLT_CHECK=/bin/sh bash "$ROOT/install.sh" --yes 2>&1); code=$?
+check "install.sh on ROMEO: says to run it on your computer" has "run install.sh on your own computer"
+check "install.sh on ROMEO: exit 1" test "$code" = 1
+
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
