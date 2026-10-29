@@ -2,6 +2,10 @@
 
 [README](../README.md) · [Usage](usage.md) · [Other clients](clients.md) · [Tuning](tuning.md) · [How it works](how-it-works.md) · [Troubleshooting](troubleshooting.md) · **Changes** · [Development](development.md)
 
+## 2026-10-29
+
+- The `romeo` skill: the agent runs Slurm jobs on ROMEO (`x64cpu`, `armgpu`), Spack software and GPFS, from your computer over the shared SSH connection or on ROMEO itself. Written from the whole ROMEO 2025 documentation and checked on the cluster (test jobs on both architectures, then an agent given only the skill). `./install.sh` links it into `~/.agents/skills` (an existing `romeo` skill of yours is kept as `romeo.before-dsh-romeo`).
+
 ## 2026-10-28
 
 - `dsh-romeo --desktop`: the DeepSeek Harness desktop app (macOS) on the ROMEO model, checked with the app 0.2.1-rc.3 (the same patch as a real session on ROMEO) and by the offline tests.

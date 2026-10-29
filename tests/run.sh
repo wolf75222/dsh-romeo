@@ -158,11 +158,26 @@ if [ -n "$REAL_DSH" ]; then
   check "real dsh: SearXNG plugin inserted" has "id: dsh-romeo-searxng"
 fi
 
-for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$HERE/run.sh"; do
+# The romeo skill: frontmatter dsh accepts, links that resolve, and its env.sh against the fake ROMEO.
+SKILL=$ROOT/share/skills/romeo
+out=$(sed -n '1,/^---$/{/^---$/d;p;}' "$SKILL/SKILL.md" | sed -n '1,4p')
+check "skill: name romeo" has "^name: romeo$"
+check "skill: description" has "^description: ."
+out=$(cd "$SKILL" && for md in SKILL.md references/*.md; do
+  grep -oE '\]\([^)#]+\)' "$md" | sed 's/^](//; s/)$//' | grep -v '^https\?:' | while read -r l; do
+    [ -e "$(dirname "$md")/$l" ] || echo "$md: $l"; done; done)
+check "skill: relative links resolve" test -z "$out"
+out=$(printf 'ROMEO_SSH_HOST=romeo\nROMEO_PROJECT=r000000\n' >"$T/skill-config"; mkdir -p "$T/xdg/dsh-romeo"; cp "$T/skill-config" "$T/xdg/dsh-romeo/config"
+  env -u ROMEO_PROJECT XDG_CONFIG_HOME=$T/xdg bash -c '. "$1"; echo "project=$ROMEO_PROJECT"; R "echo remote-user=\$USER"' _ "$SKILL/scripts/env.sh" 2>&1)
+check "skill env.sh: project from dsh-romeo's config" has "project=r000000"
+check "skill env.sh: R runs over ssh" has "remote-user=demo"
+
+for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
   out=$(bash -n "$f" 2>&1); check "syntax: $(basename "$f")" test -z "$out"
 done
 if command -v shellcheck >/dev/null; then
   out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" 2>&1); check "shellcheck" test -z "$out"
+  out=$(shellcheck -S warning -s bash "$SKILL/scripts/env.sh" 2>&1); check "shellcheck: skill env.sh" test -z "$out"
 fi
 
 out=$(DSH_ROMEO_RLT_CHECK=/bin/sh bash "$ROOT/install.sh" --yes 2>&1); code=$?

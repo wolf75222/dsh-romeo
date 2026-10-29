@@ -52,6 +52,21 @@ Host romeo
 
 On your computer: only the model runs on ROMEO. In the Web UI, a session works in the workspace chosen above the message box: on first use dsh creates `~/Documents/deepseek-harness/default-workspace`; add your project folder with the button next to *Workspaces*. `dsh-romeo headless` and the other clients work in the current folder.
 
+## Jobs on ROMEO
+
+`install.sh` links the `romeo` skill ([share/skills/romeo](../share/skills/romeo/SKILL.md)) into `~/.agents/skills`, where dsh finds it, as do the other clients that read that folder. With it the agent submits and follows Slurm jobs on `x64cpu` or `armgpu`, loads Spack software (compilers, CUDA, MPI, Python, PyTorch), checks quotas and copies files to and from ROMEO, over the same SSH connection as the tunnel, charged to `ROMEO_PROJECT`. It asks before jobs larger than one node, 4 GPUs or 4 hours, and never cancels a job it did not submit, such as the model's own. Load it with `/romeo`, or let the agent pick it when a task mentions ROMEO, Slurm or GPUs.
+
+The skill holds what ROMEO's documentation says (each page is linked from it), checked against the cluster on 2026-10-29: hardware, partitions and limits, job templates, installed software, storage, ROMEO's own tools in `/apps/romeotools`, and a troubleshooting table.
+
+It also works for an agent running on ROMEO itself (on a login node, the commands run locally instead of over SSH). There, link it by hand:
+
+```bash
+git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo
+mkdir -p ~/.agents/skills && ln -s ~/dsh-romeo/share/skills/romeo ~/.agents/skills/romeo
+```
+
+For Claude Code, link the same folder into `~/.claude/skills/romeo`.
+
 ## Web search
 
 `install.sh --search` runs [SearXNG](https://docs.searxng.org/) in Docker on `127.0.0.1:8888` (container `dsh-romeo-searxng`, settings in `~/.config/dsh-romeo/searxng`) and sets `DSH_ROMEO_SEARXNG_URL`: dsh's `web_search` tool then searches through it. Any SearXNG with the JSON format enabled works.

@@ -147,6 +147,24 @@ ok "$target -> $ROOT/bin/dsh-romeo"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *)
   printf '%s\n' "    ${R}add $BIN_DIR to your PATH${N}, e.g. echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc" ;; esac
 
+# The romeo skill (Slurm, Spack, GPFS over the shared ssh connection), in the user skill root that
+# dsh scans (~/.agents/skills, or $DSH_AGENTS_HOME/skills) and other agents read too.
+step "Skill romeo"
+skills=${DSH_AGENTS_HOME:-$HOME/.agents}/skills
+mkdir -p "$skills"
+if [ -e "$skills/romeo" ] && [ ! -L "$skills/romeo" ]; then
+  if [ -e "$skills/romeo.before-dsh-romeo" ]; then
+    printf '%s\n' "    ${R}warning:${N} $skills/romeo is your own skill: kept, dsh-romeo's is not linked"
+  else
+    mv "$skills/romeo" "$skills/romeo.before-dsh-romeo"
+    printf '%s\n' "    your own romeo skill was kept as $skills/romeo.before-dsh-romeo"
+  fi
+fi
+if [ ! -e "$skills/romeo" ] || [ -L "$skills/romeo" ]; then
+  ln -sfn "$ROOT/share/skills/romeo" "$skills/romeo"
+  ok "$skills/romeo -> $ROOT/share/skills/romeo"
+fi
+
 step "Model fiche on ROMEO"
 DSH_ROMEO_CONFIG_DIR=$CONFIG_DIR "$ROOT/bin/dsh-romeo" --setup | sed 's/^/    /'
 
