@@ -8,13 +8,27 @@ The model is DeepSeek's 17 October 2026 release of V4.1-Flash, with its full 1M-
 
 ## Install
 
-On your computer (macOS or Linux), once `ssh romeo` logs you into ROMEO without a password:
+On macOS, Linux or **WSL**, once `ssh romeo` logs you into ROMEO without a password
+and Linux/macOS Node.js 20 or later is installed:
 
 ```bash
 git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/install.sh
 ```
 
 Then run `dsh-romeo --launch`. To update: `cd ~/dsh-romeo && git pull && ./install.sh`.
+
+On **native Windows**, with Windows Node.js 20 or later and the
+[OpenSSH Client](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-overview)
+installed, run in PowerShell (5.1 or 7), after checking `ssh romeo hostname`:
+
+```powershell
+git clone https://github.com/wolf75222/dsh-romeo.git "$HOME\dsh-romeo"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$HOME\dsh-romeo\install.ps1"
+```
+
+Open a new terminal, then run `dsh-romeo.cmd --launch`. Both installers install missing dsh into a
+user-owned npm prefix: no `sudo`, administrator rights, or global npm configuration
+change. Existing dsh installations are reused. [Windows/WSL details](docs/usage.md#platforms).
 
 ## Use
 

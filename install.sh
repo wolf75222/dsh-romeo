@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Installs dsh-romeo on your computer (macOS or Linux) and prepares your ROMEO account.
+# Installs dsh-romeo on macOS, Linux or WSL and prepares your ROMEO account.
 #
 #   ./install.sh                       asks what it cannot guess
 #   ./install.sh --project r123456     the Slurm project code that pays for the model jobs
 #   ./install.sh --host romeo          the ssh alias of ROMEO (default: romeo)
 #   ./install.sh --bin-dir DIR         where to link the dsh-romeo command (default: ~/.local/bin)
 #   ./install.sh --search              also run SearXNG in Docker for web search (127.0.0.1:8888)
-#   ./install.sh --yes                 no questions: install dsh with npm if it is missing
+#   ./install.sh --yes                 no questions: install dsh in a user-owned npm prefix
 #
 # Run it again after `git pull`: it keeps your settings.
 set -euo pipefail
@@ -57,21 +57,34 @@ if [ -x "${DSH_ROMEO_RLT_CHECK:-$RLT_DEFAULT}" ]; then
 fi
 
 step "Tools on this computer"
+case $(uname -s) in
+  MINGW*|MSYS*|CYGWIN*) die "use install.ps1 in PowerShell for native Windows, or run install.sh inside WSL" ;;
+esac
 for tool in ssh curl; do command -v $tool >/dev/null || die "$tool is missing"; done
 command -v node >/dev/null || die "Node.js 20 or later is needed for dsh: https://nodejs.org (or: brew install node)"
+case $(node -p 'process.platform') in
+  win32) die "install Linux Node.js inside WSL, or use install.ps1 for native Windows" ;;
+esac
 node_major=$(node -p 'process.versions.node.split(".")[0]')
 [ "$node_major" -ge 20 ] || die "Node.js $node_major is too old for dsh: install Node.js 20 or later"
 ok "ssh, curl, Node.js $(node --version)"
 
-if command -v dsh >/dev/null; then
-  ok "dsh $(dsh --version 2>/dev/null)"
+DSH_BIN=${DSH_ROMEO_DSH:-dsh}
+if command -v "$DSH_BIN" >/dev/null; then
+  ok "dsh $("$DSH_BIN" --version 2>/dev/null)"
+elif [ -x "$CONFIG_DIR/npm/bin/dsh" ]; then
+  DSH_BIN=$CONFIG_DIR/npm/bin/dsh
+  ok "dsh $("$DSH_BIN" --version 2>/dev/null)"
 else
   command -v npm >/dev/null || die "npm is missing (it comes with Node.js)"
   [ "$(ask "dsh (DeepSeek Harness) is not installed. Install it with npm? (y/n)" y)" = y ] \
-    || die "install dsh first: npm install -g @deepseek-ai/dsh"
-  npm install -g @deepseek-ai/dsh || die "npm install -g @deepseek-ai/dsh failed (if it needs root, set an npm prefix in your home: https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally)"
-  command -v dsh >/dev/null || die "dsh was installed but is not on your PATH: add \$(npm prefix -g)/bin to PATH"
-  ok "dsh $(dsh --version 2>/dev/null)"
+    || die "install dsh first or rerun install.sh --yes"
+  # Never write to /usr/local, require sudo, or change the user's npm prefix/PATH.
+  npm install --global --prefix "$CONFIG_DIR/npm" @deepseek-ai/dsh \
+    || die "npm install in $CONFIG_DIR/npm failed"
+  DSH_BIN=$CONFIG_DIR/npm/bin/dsh
+  [ -x "$DSH_BIN" ] || die "npm did not create $DSH_BIN"
+  ok "dsh $("$DSH_BIN" --version 2>/dev/null)"
 fi
 
 # ---------------------------------------------------------------- ROMEO
@@ -134,6 +147,8 @@ DSH_ROMEO_SEARXNG_URL=\${DSH_ROMEO_SEARXNG_URL:-$SEARX}
 # Gateway: standard (romeollmtool's), or fast (no 100-stream cap, affinity across jobs: docs/tuning.md).
 DSH_ROMEO_GATEWAY=\${DSH_ROMEO_GATEWAY:-${DSH_ROMEO_GATEWAY:-standard}}
 EOF
+# %q preserves spaces and shell metacharacters in the user-owned executable path.
+printf 'DSH_ROMEO_DSH=${DSH_ROMEO_DSH:-%q}\n' "$DSH_BIN" >>"$CONFIG_DIR/config"
 ok "written"
 
 mkdir -p "$BIN_DIR"

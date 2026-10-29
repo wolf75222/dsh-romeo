@@ -4,13 +4,13 @@
 
 ## Install
 
-On your computer (macOS or Linux), once `ssh romeo` logs you into ROMEO without a password:
+On macOS, Linux or WSL, once `ssh romeo` logs you into ROMEO without a password:
 
 ```bash
 git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/install.sh
 ```
 
-`install.sh` installs dsh if it is missing (`npm install -g @deepseek-ai/dsh`, Node.js 20 or later), asks which ROMEO project pays for the model jobs, links `dsh-romeo` in `~/.local/bin` and copies the model's fiche to `~/.romeollmtool/configs` on ROMEO. Run it again after `git pull`: it keeps your settings.
+`install.sh` installs dsh if it is missing (Node.js 20 or later), asks which ROMEO project pays for the model jobs, links `dsh-romeo` in `~/.local/bin` and copies the model's fiche to `~/.romeollmtool/configs` on ROMEO. It uses `npm install --global --prefix "$CONFIG_DIR/npm" @deepseek-ai/dsh` in your own config directory and saves the executable path; it does not require `sudo` or change your npm configuration. Run it again after `git pull`: it keeps your settings.
 
 | Option | |
 |---|---|
@@ -28,6 +28,65 @@ Host romeo
     User <your ROMEO login>
     IdentityFile ~/.ssh/<your key registered on ROMEO>
 ```
+
+## Platforms
+
+### Native Windows
+
+Use Windows PowerShell 5.1 or PowerShell 7, Windows Node.js 20 or later, Git,
+and Windows OpenSSH Client. Set up `ssh romeo hostname` in Windows first
+(`$HOME\.ssh\config`; the alias and key belong to your Windows account).
+
+```powershell
+git clone https://github.com/wolf75222/dsh-romeo.git "$HOME\dsh-romeo"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$HOME\dsh-romeo\install.ps1"
+# Open a new terminal after installation, or use the full path immediately:
+& "$HOME\.local\bin\dsh-romeo.cmd" --launch
+```
+
+The installer accepts `-Project r123456`, `-SshHost romeo` (alias `-Host`),
+`-BinDir "$HOME\.local\bin"`, `-Yes`, and `-Search` (Docker Desktop with Linux
+containers). It installs missing dsh into `~/.config/dsh-romeo/npm`, writes
+`config.json`, creates PowerShell and cmd launchers in `~/.local/bin`, adds that
+directory to your user PATH, and copies the fiche to
+ROMEO. It needs no administrator rights. Existing commands at the install
+location are backed up. Open a new terminal for the PATH change when the installer
+was launched through `powershell.exe -File`. Use `dsh-romeo.cmd` explicitly if
+PowerShell's script execution policy blocks the `.ps1` launcher.
+
+Use the same commands as on Linux, including `--run codex`, `--serve`, `--status`
+and `--stop`. `--desktop` is macOS-only; Windows uses the Web UI. To import the
+endpoint variables into PowerShell:
+
+```powershell
+dsh-romeo --env | Invoke-Expression
+$env:DSH_ROMEO_PORT = '11319'  # optional different local tunnel port
+```
+
+Settings are in `~/.config/dsh-romeo/config.json` (`DSH_ROMEO_CONFIG_DIR` or
+`XDG_CONFIG_HOME` overrides the directory). Environment variables override the
+saved values. The JSON file is separate from the Bash `config`; neither file
+contains the gateway API key. Native Windows uses a dedicated background
+`ssh.exe -N -L 127.0.0.1:...` tunnel, reused between runs. `--stop` checks its
+executable, creation time and command line before terminating it. It does not
+depend on Unix SSH control sockets.
+
+To update:
+
+```powershell
+git -C "$HOME\dsh-romeo" pull
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$HOME\dsh-romeo\install.ps1"
+```
+
+### WSL
+
+Run the Bash install command **inside your Linux distribution**, with Linux
+Node.js 20 or later, npm, SSH and curl. Its SSH alias/key and `~/.config` belong
+to that Linux account; verify `ssh romeo hostname` there. Using `node.exe`
+from the Windows PATH is rejected with guidance to install Linux Node.js.
+Keep Windows and WSL npm prefixes/settings separate because they contain
+platform-specific executables and paths. Source files use LF even when cloned
+by Windows Git, so the same checkout can be read from `/mnt/c/...`.
 
 ## Commands
 
@@ -47,6 +106,11 @@ Host romeo
 | `dsh-romeo --setup` | copies the model's fiche to ROMEO again |
 
 `--launch` combines with the others: `dsh-romeo --launch --run opencode`. While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
+
+A first start with an empty CUDA/FlashInfer kernel cache can take longer than
+the timings above: vLLM compiles kernels on the GPU nodes before serving requests.
+The model is ready only after dsh-romeo's one-token request succeeds; the compilation
+progress can be read with `ssh romeo /apps/romeotools/romeollmtool/romeollmtool logs`.
 
 ## Where the agents work
 
@@ -86,6 +150,7 @@ For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 | `DSH_ROMEO_SEARXNG_URL` | empty | SearXNG for web search, e.g. `http://127.0.0.1:8888` |
 | `DSH_ROMEO_GATEWAY` | `standard` | `fast`: the patched gateway (see [Tuning](tuning.md)) |
 | `DSH_ROMEO_FAST_PORT`, `DSH_ROMEO_FAST_PROCS` | `11320`, `4` | its port on the login node and its processes |
+| `DSH_ROMEO_DSH` | `dsh` or the private install path | dsh executable; set by the installer when using its user-owned npm prefix |
 
 ## Cost
 

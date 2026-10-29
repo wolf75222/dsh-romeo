@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.sh text eol=lf
+bin/dsh-romeo text eol=lf
+tests/fake-romeo/bin/* text eol=lf
+*.ps1 text eol=lf
+*.cmd text eol=crlf

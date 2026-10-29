@@ -31,6 +31,11 @@ Then declare an OpenAI-compatible provider (Continue, Cline, Zed, Cursor, ...) w
 
 The tunnel stays open until `dsh-romeo --stop`. After your computer slept, run `dsh-romeo --serve` again.
 
+On native Windows, the same clients run as Windows processes. Import the endpoint
+with `dsh-romeo --env | Invoke-Expression` in PowerShell; use `python` instead of
+`python3` when that is your Python command. The generated opencode and dsh files
+are in the Windows config directory (see [Platforms](usage.md#platforms)).
+
 ## Variables
 
 | Variable | Value |

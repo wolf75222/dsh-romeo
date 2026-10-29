@@ -224,6 +224,9 @@ summary() {  # one line for the jobs: "job 123 running 4:10" or "job 123 pending
 # ---------------------------------------------------------------- dsh
 
 write_overlay() {
+  local effort=$DSH_ROMEO_EFFORT
+  # dsh uses "off" internally; reasoningEfforts below maps it to API "none".
+  [ "$effort" != none ] || effort=off
   mkdir -p "$CONFIG_DIR"
   {
     cat <<YAML
@@ -242,7 +245,7 @@ write_overlay() {
           supportsDeveloperRole: false
           supportsStore: false
           maxTokensField: max_tokens
-        reasoning: $DSH_ROMEO_EFFORT
+        reasoning: $effort
         streamIdleTimeoutMs: 600000
         models:
           - id: $MODEL
@@ -255,7 +258,7 @@ write_overlay() {
   config:
     provider: romeo
     model: $MODEL
-    reasoningEffort: $DSH_ROMEO_EFFORT
+    reasoningEffort: $effort
 YAML
     if [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
       cat <<YAML

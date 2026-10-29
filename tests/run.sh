@@ -31,6 +31,7 @@ check() {  # check "name" condition...
   else fail=$((fail + 1)); printf '  FAIL  %s\n' "$name"; printf '%s\n' "$out" | sed 's/^/        | /'; fi
 }
 has() { grep -q -- "$1" <<<"$out"; }
+has_ere() { grep -qE -- "$1" <<<"$out"; }
 lacks() { ! grep -q -- "$1" <<<"$out"; }
 run() { out=$("$ROOT/bin/dsh-romeo" "$@" 2>&1); code=$?; }
 
@@ -81,6 +82,10 @@ check "headless and its task pass through" grep -q "args: headless --patch .* fi
 DSH_ROMEO_SEARXNG_URL=http://127.0.0.1:8888 run
 check "overlay: SearXNG when configured" grep -q 'baseURL: "http://127.0.0.1:8888"' "$overlay"
 check "overlay: SearXNG plugin path" grep -q "name: $ROOT/share/web-search-searxng.mjs" "$overlay"
+
+DSH_ROMEO_EFFORT=none run headless "disabled thinking"
+check "none: dsh provider uses off" grep -q '^        reasoning: off$' "$overlay"
+check "none: dsh agent uses off" grep -q '^    reasoningEffort: off$' "$overlay"
 
 # Other clients: the endpoint as variables, a summary, any program, codex's flags.
 env_out=$("$ROOT/bin/dsh-romeo" --env 2>/dev/null)
@@ -151,11 +156,13 @@ check "ROMEO unreachable: clear error" has "cannot connect to 'romeo' over SSH"
 
 if [ -n "$REAL_DSH" ]; then
   # The overlay must compose with the real dsh (fresh DSH_HOME, no network needed).
-  DSH_ROMEO_SEARXNG_URL=http://127.0.0.1:8888 run --launch
+  DSH_ROMEO_EFFORT=none DSH_ROMEO_SEARXNG_URL=http://127.0.0.1:8888 run --launch
   composed=$(cd "$T" && DSH_HOME=$T/dsh-home "$REAL_DSH" --profile headless --patch "$overlay" --dump-config 2>&1)
   out=$composed
   check "real dsh: romeo is the default provider" has "provider: romeo"
   check "real dsh: SearXNG plugin inserted" has "id: dsh-romeo-searxng"
+  check "real dsh: disabled thinking uses off" has_ere "reasoning: ['\"]?off['\"]?([[:space:]]|$)"
+  check "real dsh: overlay activates without validation errors" lacks "ValidationError"
 fi
 
 # The romeo skill: frontmatter dsh accepts, links that resolve, and its env.sh against the fake ROMEO.
