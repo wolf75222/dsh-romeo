@@ -132,6 +132,12 @@ if [ "$(uname)" = Darwin ]; then
   check "--desktop: quits the running app first" grep -q "quit app" "$FAKE_ROMEO_STATE/osascript-call"
   check "--desktop: overlay in the desktop profile" grep -q "provider: romeo" "$T/home/.dsh/profiles/desktop/cordis.patch.yml"
   check "--desktop: your own patch kept" grep -q "my-own" "$T/home/.dsh/profiles/desktop/cordis.patch.yml.before-dsh-romeo"
+  check "--desktop: the app's own rows kept in the patch" grep -q "^- id: my-own" "$T/home/.dsh/profiles/desktop/cordis.patch.yml"
+  printf '%s\n' '- id: ui-theme' '  config: { theme: dark }' >>"$T/home/.dsh/profiles/desktop/cordis.patch.yml"
+  touch "$FAKE_ROMEO_STATE/app-running"
+  HOME=$T/home run --desktop
+  check "--desktop again: a setting the app saved is kept" grep -q "^- id: ui-theme" "$T/home/.dsh/profiles/desktop/cordis.patch.yml"
+  check "--desktop again: dsh-romeo's rows once" test "$(grep -c '^- id: llm-pi-ai' "$T/home/.dsh/profiles/desktop/cordis.patch.yml")" = 1
   FAKE_NO_APP=1 HOME=$T/home run --desktop
   check "--desktop without the app: says so" has "app is not installed"
 fi
@@ -154,6 +160,10 @@ run --models kimi --launch 2
 check "kimi: one job only (32 GPUs)" has "one job fits in ROMEO's 60-GPU limit"
 run --models gpt
 check "unknown models: clear error" has "models: deepseek, kimi or kimi+deepseek"
+run --status
+check "models remembered: kimi again without --models" has "no model job of dsh-kimi-k3.1-pro-1m"
+DSH_ROMEO_MODELS=deepseek run --status
+check "models: the environment wins over the remembered choice" has "no model job of dsh-deepseek-v4.1-flash-1017-1m"
 
 # Kimi as the agent, DeepSeek for its subagents: two jobs, both models waited for and listed.
 run --models kimi+deepseek --launch headless "both"
@@ -183,6 +193,8 @@ check "kimi+deepseek --env: Claude Code's Haiku on DeepSeek" has "export ANTHROP
 check "kimi+deepseek opencode.json: valid, both models" python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); m=c["provider"]["romeo"]["models"]; assert len(m)==2 and c["small_model"]=="romeo/dsh-deepseek-v4.1-flash-1017-1m"' "$DSH_ROMEO_CONFIG_DIR/opencode.json"
 DSH_ROMEO_MODELS=kimi+deepseek run --stop
 check "kimi+deepseek --stop: both jobs" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs'"
+run --models deepseek --status
+check "models: back to deepseek" has "no model job of dsh-deepseek-v4.1-flash-1017-1m"
 
 DSH_ROMEO_FICHE=no-such-fiche run
 check "unknown fiche: clear error" has "fiche 'no-such-fiche' not found"

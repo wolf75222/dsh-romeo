@@ -3,8 +3,8 @@
 #
 #   dsh-romeo                     open the dsh Web UI (every dsh profile and argument passes through:
 #   dsh-romeo headless "a task"     dsh-romeo web --port 3000, dsh-romeo headless "...")
-#   dsh-romeo --models M ...      the models, before any other option: deepseek (default), kimi, or
-#                                   kimi+deepseek (Kimi as the agent, DeepSeek for its subagents)
+#   dsh-romeo --models M ...      the models, before any other option, kept for the next runs:
+#                                   deepseek (default), kimi, or kimi+deepseek (DeepSeek subagents)
 #   dsh-romeo --launch [N]        submit N model jobs (default 1), wait for the model, then open dsh
 #   dsh-romeo --desktop           the DeepSeek Harness desktop app (macOS) instead of the Web UI
 #   dsh-romeo --run CMD [ARGS]    any other client instead of dsh: opencode, codex, claude, aider, python...
@@ -38,8 +38,12 @@ done
 ROOT=$(cd "$(dirname "$src")/.." && pwd)
 
 CONFIG_DIR=${DSH_ROMEO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo}
+MODELS_ENV=${DSH_ROMEO_MODELS:-}  # set in the environment: wins over the remembered --models
 # shellcheck source=/dev/null
 [ -f "$CONFIG_DIR/config" ] && . "$CONFIG_DIR/config"
+# The last --models, kept until the next one; then the environment, the config file, deepseek.
+MODELS_FILE=$CONFIG_DIR/models
+if [ -z "$MODELS_ENV" ] && [ -s "$MODELS_FILE" ]; then DSH_ROMEO_MODELS=$(cat "$MODELS_FILE"); fi
 : "${ROMEO_SSH_HOST:=romeo}"                             # ssh alias of a ROMEO login node
 : "${ROMEO_PROJECT:=}"                                   # Slurm project code charged for the model jobs
 : "${DSH_ROMEO_MODELS:=deepseek}"                        # deepseek, kimi, or kimi+deepseek (DeepSeek subagents)
@@ -383,6 +387,25 @@ run_dsh() {
 # --patch: the overlay goes into that profile's cordis.patch.yml. A patch of your own there is
 # kept once as cordis.patch.yml.before-dsh-romeo.
 DESKTOP_APP=${DSH_ROMEO_DESKTOP_APP:-DeepSeek Harness}
+
+# The overlay, then the rows of the app's patch $1 that are not dsh-romeo's: the app saves its own
+# settings (theme, permissions, account...) in that file, and they are kept from one start to the
+# next. dsh-romeo's rows of an earlier start go, even those this one does not write again.
+merge_desktop_patch() {
+  cat "$OVERLAY"
+  [ -f "$1" ] || return 0
+  awk -v ids="$(sed -n 's/^- id: //p' "$OVERLAY" | tr '\n' ' ') llm-pi-ai agent-default-model tool-subagent" '
+    BEGIN { n = split(ids, a, " "); for (i = 1; i <= n; i++) ours[a[i]] = 1 }
+    function flush() {
+      if (row != "" && !(id in ours) && row !~ /dsh-romeo-searxng/ && row !~ /agentOptions:\n *provider: romeo\n/)
+        printf "%s", row
+      row = ""; id = ""
+    }
+    /^#/ { next }
+    /^- / { flush(); id = $0; sub(/^- id: /, "", id) }
+    { if (row != "" || $0 !~ /^[[:space:]]*$/) row = row $0 "\n" }
+    END { flush() }' "$1"
+}
 run_desktop() {
   [ "$(uname)" = Darwin ] || die "--desktop: the DeepSeek Harness desktop app is for macOS"
   open -Ra "$DESKTOP_APP" 2>/dev/null || die "the $DESKTOP_APP app is not installed (https://github.com/deepseek-ai/deepseek-harness/releases)"
@@ -390,11 +413,13 @@ run_desktop() {
   local dir=$HOME/.dsh/profiles/desktop
   local patch=$dir/cordis.patch.yml
   mkdir -p "$dir"
-  if [ -f "$patch" ] && ! grep -q '^# Written by dsh-romeo' "$patch" && grep -q -v -E '^[[:space:]]*(#|\[\][[:space:]]*$|$)' "$patch"; then
-    [ -e "$patch.before-dsh-romeo" ] || cp "$patch" "$patch.before-dsh-romeo"
-    note "your desktop patch was kept as $patch.before-dsh-romeo"
+  if [ -f "$patch" ] && ! grep -q '^# Written by dsh-romeo' "$patch" && grep -q -v -E '^[[:space:]]*(#|\[\][[:space:]]*$|$)' "$patch" \
+     && [ ! -e "$patch.before-dsh-romeo" ]; then
+    cp "$patch" "$patch.before-dsh-romeo"
+    note "a copy of your desktop patch before dsh-romeo: $patch.before-dsh-romeo"
   fi
-  cp "$OVERLAY" "$patch"
+  merge_desktop_patch "$patch" >"$patch.tmp"
+  mv "$patch.tmp" "$patch"
   # The app reads its environment at start only: a running copy is quit first (its sessions are kept).
   if pgrep -qf "/$DESKTOP_APP.app/Contents/MacOS/"; then
     say "restarting $DESKTOP_APP so it gets the ROMEO key"
@@ -577,6 +602,9 @@ main() {
     [ $# -ge 2 ] || die "--models takes deepseek, kimi or kimi+deepseek"
     DSH_ROMEO_MODELS=$2
     shift 2
+    resolve_models
+    mkdir -p "$CONFIG_DIR"
+    printf '%s\n' "$DSH_ROMEO_MODELS" >"$MODELS_FILE"
   fi
   resolve_models
   case "${1:-}" in
