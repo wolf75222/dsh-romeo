@@ -10,7 +10,7 @@ On your computer (macOS or Linux), once `ssh romeo` logs you into ROMEO without 
 git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/install.sh
 ```
 
-`install.sh` installs dsh if it is missing (`npm install -g @deepseek-ai/dsh`, Node.js 20 or later), asks which ROMEO project pays for the model jobs, links `dsh-romeo` in `~/.local/bin` and copies the model's fiche to `~/.romeollmtool/configs` on ROMEO. Run it again after `git pull`: it keeps your settings.
+`install.sh` installs dsh if it is missing (`npm install -g @deepseek-ai/dsh@next`, 0.2.2, with Node.js 24.9 or later; `@latest`, 0.2.1, with Node.js 20 to 24.8), asks which ROMEO project pays for the model jobs, links `dsh-romeo` in `~/.local/bin` and copies the model's fiche to `~/.romeollmtool/configs` on ROMEO. Run it again after `git pull`: it keeps your settings.
 
 | Option | |
 |---|---|

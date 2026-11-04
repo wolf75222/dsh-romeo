@@ -295,10 +295,11 @@ YAML
 
 # The subagents' model: dsh composes its "subagent" tool inside each agent preset, which a patch
 # cannot reach row by row, so the rows holding one are restated whole from dsh's own composition
-# (dsh --dump-config) with agentOptions added to that tool. $1: the dsh profile.
+# (dsh --dump-config) with agentOptions added to that tool. $1: the dsh profile, $2: the dsh whose
+# composition it is (the desktop app has its own, of its own version).
 subagent_patch() {
   local dump
-  dump=$("${DSH_ROMEO_DSH:-dsh}" --profile "$1" --dump-config 2>/dev/null) \
+  dump=$("${2:-${DSH_ROMEO_DSH:-dsh}}" --profile "$1" --dump-config 2>/dev/null) \
     && grep -q -- '- id: tool-subagent$' <<<"$dump" \
     || { say "${Y}cannot read dsh's composition${N}: subagents keep $LABEL"; return 0; }
   printf '# Subagents (the "subagent" tool) on %s.\n' "$SUB_LABEL"
@@ -320,7 +321,7 @@ subagent_patch() {
     END { flush() }' <<<"$dump"
 }
 
-write_overlay() {  # $1: the dsh profile
+write_overlay() {  # $1: the dsh profile, $2: the dsh that runs it
   mkdir -p "$CONFIG_DIR"
   {
     cat <<YAML
@@ -352,7 +353,7 @@ YAML
     model: $MODEL
     reasoningEffort: $DSH_ROMEO_EFFORT
 YAML
-    [ -z "$SUB_MODEL" ] || subagent_patch "${1:-web}"
+    [ -z "$SUB_MODEL" ] || subagent_patch "${1:-web}" "${2:-}"
     if [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
       cat <<YAML
 # Web search through SearXNG (DSH_ROMEO_SEARXNG_URL).
@@ -388,6 +389,13 @@ run_dsh() {
 # kept once as cordis.patch.yml.before-dsh-romeo.
 DESKTOP_APP=${DSH_ROMEO_DESKTOP_APP:-DeepSeek Harness}
 
+desktop_dsh() {  # the dsh command line inside the app, empty when not found
+  local app
+  for app in "/Applications/$DESKTOP_APP.app" "$HOME/Applications/$DESKTOP_APP.app"; do
+    [ -x "$app/Contents/Resources/runtime/cli/bin/dsh" ] && { echo "$app/Contents/Resources/runtime/cli/bin/dsh"; return; }
+  done
+}
+
 # The overlay, then the rows of the app's patch $1 that are not dsh-romeo's: the app saves its own
 # settings (theme, permissions, account...) in that file, and they are kept from one start to the
 # next. dsh-romeo's rows of an earlier start go, even those this one does not write again.
@@ -409,7 +417,11 @@ merge_desktop_patch() {
 run_desktop() {
   [ "$(uname)" = Darwin ] || die "--desktop: the DeepSeek Harness desktop app is for macOS"
   open -Ra "$DESKTOP_APP" 2>/dev/null || die "the $DESKTOP_APP app is not installed (https://github.com/deepseek-ai/deepseek-harness/releases)"
-  write_overlay web  # the desktop profile is the app's own; its presets are the Web UI's
+  # The desktop profile is the app's own (no --dump-config): its presets are the Web UI's, read
+  # with the app's own dsh, whose version can differ from the dsh installed with npm.
+  local app_dsh
+  app_dsh=${DSH_ROMEO_DESKTOP_DSH:-$(desktop_dsh)}
+  write_overlay web "$app_dsh"
   local dir=$HOME/.dsh/profiles/desktop
   local patch=$dir/cordis.patch.yml
   mkdir -p "$dir"

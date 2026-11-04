@@ -4,6 +4,8 @@
 
 ## 2026-11-04
 
+- Checked with dsh 0.2.2-rc.1 (npm `next`, and the desktop app 0.2.2-rc.1). `install.sh` installs that version when Node.js is 24.9 or later. `--desktop` reads the presets it restates with the app's own dsh, whose version can differ from the npm one (0.2.1 kept a `list_agents` tool that 0.2.2-alpha.3 lacks).
+
 - `--models` is remembered for the next runs, so `dsh-romeo --desktop` after `dsh-romeo --models kimi+deepseek --launch` opens the app on Kimi. `--desktop` keeps the settings the app saves in its `cordis.patch.yml` (it overwrote them at every start) and replaces only dsh-romeo's own rows.
 
 - Choice of models: `dsh-romeo --models deepseek|kimi|kimi+deepseek` (or `DSH_ROMEO_MODELS` in the config). `kimi+deepseek` runs Kimi-K3.1-Pro as the agent and DeepSeek-V4.1-Flash-1017 for its subagents: both jobs launched and waited for, both models in dsh's list, dsh's `subagent` tool routed to DeepSeek in every preset. `install.sh` writes `DSH_ROMEO_MODELS`; a `DSH_ROMEO_FICHE` left at the old default is dropped, a fiche of your own is kept.

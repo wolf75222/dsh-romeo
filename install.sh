@@ -71,7 +71,12 @@ else
   command -v npm >/dev/null || die "npm is missing (it comes with Node.js)"
   [ "$(ask "dsh (DeepSeek Harness) is not installed. Install it with npm? (y/n)" y)" = y ] \
     || die "install dsh first: npm install -g @deepseek-ai/dsh"
-  npm install -g @deepseek-ai/dsh || die "npm install -g @deepseek-ai/dsh failed (if it needs root, set an npm prefix in your home: https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally)"
+  # dsh's "next" (0.2.2, the desktop app's version, tested with dsh-romeo) needs Node.js 24.9;
+  # "latest" (0.2.1) runs on Node.js 20. npm 11 asks before running its native modules' build scripts.
+  tag=latest
+  node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>24||(a==24&&b>=9)?0:1)' && tag=next
+  npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs \
+    "@deepseek-ai/dsh@$tag" || die "npm install -g @deepseek-ai/dsh failed (if it needs root, set an npm prefix in your home: https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally)"
   command -v dsh >/dev/null || die "dsh was installed but is not on your PATH: add \$(npm prefix -g)/bin to PATH"
   ok "dsh $(dsh --version 2>/dev/null)"
 fi

@@ -138,6 +138,19 @@ if [ "$(uname)" = Darwin ]; then
   HOME=$T/home run --desktop
   check "--desktop again: a setting the app saved is kept" grep -q "^- id: ui-theme" "$T/home/.dsh/profiles/desktop/cordis.patch.yml"
   check "--desktop again: dsh-romeo's rows once" test "$(grep -c '^- id: llm-pi-ai' "$T/home/.dsh/profiles/desktop/cordis.patch.yml")" = 1
+  # Kimi with DeepSeek subagents in the app: the presets come from the app's own dsh.
+  printf '%s\n' '#!/usr/bin/env bash' 'sed s/preset-standard/preset-of-the-app/ "$(dirname "$0")/dump-web.yml"' >"$T/app-dsh"
+  cp "$HERE/fake-romeo/dump-web.yml" "$T/dump-web.yml"
+  chmod +x "$T/app-dsh"
+  touch "$FAKE_ROMEO_STATE/app-running"
+  DSH_ROMEO_DESKTOP_DSH=$T/app-dsh HOME=$T/home run --models kimi+deepseek --launch --desktop
+  check "--desktop kimi+deepseek: presets of the app's dsh" grep -q "^- id: preset-of-the-app" "$T/home/.dsh/profiles/desktop/cordis.patch.yml"
+  check "--desktop kimi+deepseek: the app's settings still kept" grep -q "^- id: ui-theme" "$T/home/.dsh/profiles/desktop/cordis.patch.yml"
+  touch "$FAKE_ROMEO_STATE/app-running"
+  DSH_ROMEO_DESKTOP_DSH=$T/app-dsh HOME=$T/home run --models deepseek --desktop
+  check "--desktop back to deepseek: no subagent preset left" bash -c "! grep -q 'preset-of-the-app' '$T/home/.dsh/profiles/desktop/cordis.patch.yml'"
+  run --models kimi --stop
+  run --models deepseek --status
   FAKE_NO_APP=1 HOME=$T/home run --desktop
   check "--desktop without the app: says so" has "app is not installed"
 fi
