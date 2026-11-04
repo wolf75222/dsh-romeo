@@ -79,7 +79,7 @@ For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 |---|---|---|
 | `ROMEO_PROJECT` | asked | Slurm project code charged for the model jobs |
 | `ROMEO_SSH_HOST` | `romeo` | ssh alias of a ROMEO login node |
-| `DSH_ROMEO_FICHE` | `dsh-deepseek-v4.1-flash-1017-1m` | `romeollmtool` fiche of the model; `deepseek-v4.1-flash-vllm` is ROMEO's validated one (1 node, 262K context, longer to load) |
+| `DSH_ROMEO_FICHE` | `dsh-deepseek-v4.1-flash-1017-1m` | `romeollmtool` fiche of the model; `deepseek-v4.1-flash-vllm` is ROMEO's validated one (1 node, 262K context, longer to load) ; `dsh-kimi-k3.1-pro-1m` is Kimi-K3.1-Pro (8 nodes, 32 GPUs, experimental: see [Tuning](tuning.md#kimi-k31-pro)) |
 | `DSH_ROMEO_TIME` | `08:00:00` | duration of a model job (24 h at most) |
 | `DSH_ROMEO_EFFORT` | `max` | default reasoning effort: `none`, `low`, `high`, `max` |
 | `DSH_ROMEO_PORT` | `11318` | local port of the tunnel |

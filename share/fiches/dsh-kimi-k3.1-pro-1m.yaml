@@ -1,0 +1,136 @@
+# ==============================================================================
+# Kimi-K3.1-Pro for DeepSeek Harness: vLLM, 8 nodes (32 GH200), 1M context
+# ==============================================================================
+# romeollmtool fiche installed by dsh-romeo in ~/.romeollmtool/configs.
+# Use it with DSH_ROMEO_FICHE=dsh-kimi-k3.1-pro-1m.
+#
+# Kimi-K3.1-Pro (moonshotai/Kimi-K3.1-Pro, rev. 6d0a0202, 2 November 2026):
+# Kimi K3 post-trained, with Gated DeepSeek Sparse Attention (DSA, top-2048
+# indexer) in place of the 24 full-attention MLA layers. MXFP4 routed experts,
+# 1.56 TB, the same size as K3, so the same 32 GPUs: 1.56 TB / 32 = 47 GiB of
+# weights per GPU out of 96. Two replicas would need 64 GPUs, above the
+# 60-GPU account limit.
+#
+# Engine: no vLLM release has K3.1 yet (vllm-project/vllm#65685, Docker image
+# only). The engine is a personal one (engine_dir:): vLLM 0.33.0 plus the
+# Python of that PR on the precompiled kernels of its merge base, built on an
+# armgpu node by engines/build-vllm-k31.sbatch.
+#
+# Weights and engine are on project r260105's storage. Other projects: stage
+# them with the same scripts and change the two paths.
+#
+# Starting point: the retained Kimi K3 fiche (October 2026, vLLM 0.32.0), whose
+# settings carry over since only the attention of 24 layers changed:
+# - TP8 x PP4 (TP8 = 2 nodes over InfiniBand, 4 pipeline stages): 10.3 against
+#   6.8 tok/s per agent at 9 agents for TP4 x PP8, TTFT halved at 16K;
+# - DCP8: the KV cache of each request spread over the 8 GPUs of a stage, 21M
+#   tokens on K3; without it about 600K, less than one 1M context;
+# - --no-async-scheduling: with PP, async scheduling decodes a request once
+#   every 4 steps and the steps do not overlap on ROMEO: +17 to +37 % per agent
+#   from 4 to 16 agents (-10 % for one agent alone);
+# - fastsafetensors: weights in 6 min on cold nodes, against ~30 min;
+# - --gpu-memory-utilization 0.78: GH200s sometimes have only 77-80 GiB free
+#   at start (host pages on the HBM);
+# - Marlin MoE: Hopper has no FP4, Marlin dequantizes the MXFP4 experts.
+# The attention backend is left to vLLM: the DSA layers need the sparse MLA one.
+# Plus what dsh-romeo kept for DeepSeek: 1M context, 256K output, 32 CPUs per
+# node, --stream-interval 4, Moonshot's sampling (temperature 1.0, top_p 0.95),
+# maximum reasoning by default.
+# DSpark (Inferact/Kimi-K3.1-Pro-DSpark-preview) is not on: on K3 its
+# non-causal MLA had no Hopper backend compatible with DCP. To measure again.
+# ==============================================================================
+
+id: dsh-kimi-k3.1-pro-1m
+display_name: "Kimi-K3.1-Pro for dsh, 8 nodes TP8 x PP4 x DCP8, 1M context"
+verified: experimental
+verified_note: "tuned for DeepSeek Harness agents (dsh-romeo), from the Kimi K3 measurements"
+engine: vllm
+license: "Kimi-K3.1 License"
+license_usage: open
+category: [general, reasoning, tools, long-context, moe]
+
+env:
+  NCCL_IB_HCA: "mlx5_0,mlx5_1,mlx5_2,mlx5_3"
+  NCCL_SOCKET_IFNAME: "ibp3s0"
+  GLOO_SOCKET_IFNAME: "ibp3s0"
+  # No NVLink between nodes: plain NCCL over InfiniBand.
+  NCCL_MNNVL_ENABLE: "0"
+  NCCL_NVLS_ENABLE: "0"
+  NCCL_CUMEM_ENABLE: "1"
+  VLLM_ALLREDUCE_USE_FLASHINFER: "0"
+  VLLM_ALLREDUCE_USE_SYMM_MEM: "0"
+  # Avoids a 21-min hang at start on K3 (TRTLLM barrier against a GEMM).
+  VLLM_FLASHINFER_ALLREDUCE_BACKEND: "mnnvl"
+  VLLM_USE_V2_MODEL_RUNNER: "1"
+  VLLM_USE_BREAKABLE_CUDAGRAPH: "0"
+  VLLM_ENGINE_READY_TIMEOUT_S: "7200"
+  VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "3600"
+  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+  RAY_memory_monitor_refresh_ms: "0"
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  # Compilation caches on /project: faster later starts.
+  HF_HOME: "/project/r260105/rmdraux/kimi-k31-pro/cache/huggingface"
+  TRITON_CACHE_DIR: "/project/r260105/rmdraux/kimi-k31-pro/cache/triton"
+  TORCHINDUCTOR_CACHE_DIR: "/project/r260105/rmdraux/kimi-k31-pro/cache/inductor"
+  VLLM_CACHE_ROOT: "/project/r260105/rmdraux/kimi-k31-pro/cache/vllm"
+  CUDA_CACHE_PATH: "/project/r260105/rmdraux/kimi-k31-pro/cache/cuda"
+  FLASHINFER_WORKSPACE_BASE: "/project/r260105/rmdraux/kimi-k31-pro/cache"
+  # JIT builds off /scratch_p (file quota).
+  TMPDIR: "/project/r260105/rmdraux/kimi-k31-pro/tmp"
+
+slurm:
+  time: "24:00:00"
+  nodes: 8
+  gpus: 4
+  cpus: 32
+  memory: "500G"
+  constraint: "armgpu"
+  reservation: ""
+
+vllm:
+  engine_dir: "/project/r260105/rmdraux/engines/vllm-k31"
+  model: "/project/r260105/rmdraux/kimi-k31-pro/models/Kimi-K3.1-Pro-6d0a0202"
+  served_model_name: "dsh-kimi-k3.1-pro-1m"
+  tensor_parallel_size: 8
+  pipeline_parallel_size: 4
+  extra_args:
+    - "--trust-remote-code"
+    - "--disable-custom-all-reduce"
+    - "--language-model-only"
+    - "--load-format"
+    - "fastsafetensors"
+    - "--dtype"
+    - "bfloat16"
+    - "--mamba-ssm-cache-dtype"
+    - "float32"
+    - "--decode-context-parallel-size"
+    - "8"
+    - "--moe-backend"
+    - "marlin"
+    - "--gpu-memory-utilization"
+    - "0.78"
+    - "--max-model-len"
+    - "1048576"
+    - "--max-num-seqs"
+    - "16"
+    - "--max-num-batched-tokens"
+    - "8192"
+    - "--no-async-scheduling"
+    - "--enable-chunked-prefill"
+    - "--enable-prefix-caching"
+    - "--prefix-match-unit"
+    - "128"
+    - "--enable-prompt-tokens-details"
+    - "--enable-auto-tool-choice"
+    - "--tool-call-parser"
+    - "kimi_k3"
+    - "--reasoning-parser"
+    - "kimi_k3"
+    - "--stream-interval"
+    - "4"
+
+generation:
+  temperature: 1.0
+  top_p: 0.95
+  max_tokens: 262144
