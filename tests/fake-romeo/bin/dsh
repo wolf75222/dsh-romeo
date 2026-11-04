@@ -1,3 +1,9 @@
 #!/usr/bin/env bash
-# Fake dsh: records how dsh-romeo started it.
+# Fake dsh: records how dsh-romeo started it. --dump-config prints a small Web composition
+# (tests/fake-romeo/dump-web.yml), or the real one through $FAKE_DSH_REAL.
+case " $* " in
+  *" --dump-config "*)
+    [ -n "${FAKE_DSH_REAL:-}" ] && exec "$FAKE_DSH_REAL" "$@"
+    exec cat "$(dirname "$0")/../dump-web.yml" ;;
+esac
 { echo "args: $*"; echo "key: ${ROMEO_LLM_KEY:-}"; } >"$FAKE_ROMEO_STATE/dsh-call"

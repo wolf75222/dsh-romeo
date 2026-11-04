@@ -143,12 +143,46 @@ run --stop
 check "--stop: job stopped" has "model job 900001 stopped"
 check "--stop: no job left" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs'"
 
-DSH_ROMEO_FICHE=dsh-kimi-k3.1-pro-1m run --launch
+run --models kimi --launch
 check "kimi: job of its fiche" grep -q "dsh-kimi-k3.1-pro-1m" "$FAKE_ROMEO_STATE/jobs"
-check "kimi: ready" has "Kimi-K3.1-Pro"
+check "kimi: ready" has "Kimi-K3.1-Pro ready"
 check "kimi overlay: its served model" grep -q "model: dsh-kimi-k3.1-pro-1m" "$overlay"
 check "kimi overlay: its name" grep -q "name: Kimi-K3.1-Pro (ROMEO)" "$overlay"
-DSH_ROMEO_FICHE=dsh-kimi-k3.1-pro-1m run --stop
+check "kimi overlay: no subagent model" bash -c "! grep -q agentOptions '$overlay'"
+run --models kimi --stop
+run --models kimi --launch 2
+check "kimi: one job only (32 GPUs)" has "one job fits in ROMEO's 60-GPU limit"
+run --models gpt
+check "unknown models: clear error" has "models: deepseek, kimi or kimi+deepseek"
+
+# Kimi as the agent, DeepSeek for its subagents: two jobs, both models waited for and listed.
+run --models kimi+deepseek --launch headless "both"
+check "kimi+deepseek: a Kimi job" grep -q " dsh-kimi-k3.1-pro-1m " "$FAKE_ROMEO_STATE/jobs"
+check "kimi+deepseek: a DeepSeek job" grep -q " dsh-deepseek-v4.1-flash-1017-1m " "$FAKE_ROMEO_STATE/jobs"
+check "kimi+deepseek: Kimi ready" has "Kimi-K3.1-Pro ready"
+check "kimi+deepseek: DeepSeek ready for the subagents" has "DeepSeek-V4.1-Flash-1017 ready for the subagents"
+check "kimi+deepseek overlay: both models" bash -c "grep -q 'id: dsh-kimi-k3.1-pro-1m' '$overlay' && grep -q 'id: dsh-deepseek-v4.1-flash-1017-1m' '$overlay'"
+check "kimi+deepseek overlay: Kimi by default" bash -c "grep -A3 'id: agent-default-model' '$overlay' | grep -q 'model: dsh-kimi-k3.1-pro-1m'"
+sub=$(sed -n '/^# Subagents/,$p' "$overlay")
+out=$sub
+check "kimi+deepseek overlay: the preset restated" has "^- id: preset-standard$"
+check "kimi+deepseek overlay: subagents on DeepSeek" has "^              agentOptions:$"
+check "kimi+deepseek overlay: in the subagent tool" bash -c "grep -A6 '^          - id: tool-subagent\$' <<<\"\$1\" | grep -q 'model: dsh-deepseek-v4.1-flash-1017-1m'" _ "$sub"
+check "kimi+deepseek overlay: fork keeps the agent's model" bash -c "! grep -A6 'id: tool-subagent-fork' <<<\"\$1\" | grep -q agentOptions" _ "$sub"
+check "kimi+deepseek overlay: block scalars kept" has "^            First paragraph.$"
+check "kimi+deepseek overlay: their blank lines kept" bash -c "grep -A1 'First paragraph.' <<<\"\$1\" | tail -1 | grep -q '^$'" _ "$sub"
+check "kimi+deepseek overlay: rows without the tool left out" lacks "id: tool-todo"
+check "kimi+deepseek overlay: no dump comments" lacks "# =="
+run --models kimi+deepseek --launch
+check "kimi+deepseek: no second DeepSeek job" test "$(grep -c ' dsh-deepseek-v4.1-flash-1017-1m ' "$FAKE_ROMEO_STATE/jobs")" = 1
+env_out=$(DSH_ROMEO_MODELS=kimi+deepseek "$ROOT/bin/dsh-romeo" --env 2>/dev/null)
+out=$env_out
+check "kimi+deepseek --env: Kimi" has "export DSH_ROMEO_MODEL=dsh-kimi-k3.1-pro-1m"
+check "kimi+deepseek --env: DeepSeek for subagents" has "export DSH_ROMEO_SUB_MODEL=dsh-deepseek-v4.1-flash-1017-1m"
+check "kimi+deepseek --env: Claude Code's Haiku on DeepSeek" has "export ANTHROPIC_DEFAULT_HAIKU_MODEL=dsh-deepseek-v4.1-flash-1017-1m"
+check "kimi+deepseek opencode.json: valid, both models" python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); m=c["provider"]["romeo"]["models"]; assert len(m)==2 and c["small_model"]=="romeo/dsh-deepseek-v4.1-flash-1017-1m"' "$DSH_ROMEO_CONFIG_DIR/opencode.json"
+DSH_ROMEO_MODELS=kimi+deepseek run --stop
+check "kimi+deepseek --stop: both jobs" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs'"
 
 DSH_ROMEO_FICHE=no-such-fiche run
 check "unknown fiche: clear error" has "fiche 'no-such-fiche' not found"
@@ -163,6 +197,13 @@ if [ -n "$REAL_DSH" ]; then
   out=$composed
   check "real dsh: romeo is the default provider" has "provider: romeo"
   check "real dsh: SearXNG plugin inserted" has "id: dsh-romeo-searxng"
+  # Subagents on DeepSeek in every preset of the real Web composition.
+  FAKE_DSH_REAL=$REAL_DSH run --models kimi+deepseek --launch
+  composed=$(cd "$T" && DSH_HOME=$T/dsh-home "$REAL_DSH" --profile web --patch "$overlay" --dump-config 2>&1)
+  out=$composed
+  check "real dsh: the patch applies" lacks "not found"
+  check "real dsh: subagents of the standard preset on DeepSeek" bash -c "grep -A8 '^          - id: tool-subagent\$' <<<\"\$1\" | grep -q 'model: dsh-deepseek-v4.1-flash-1017-1m'" _ "$composed"
+  DSH_ROMEO_MODELS=kimi+deepseek run --stop
 fi
 
 # The romeo skill: frontmatter dsh accepts, links that resolve, and its env.sh against the fake ROMEO.

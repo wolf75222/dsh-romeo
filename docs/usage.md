@@ -44,9 +44,22 @@ Host romeo
 | `eval "$(dsh-romeo --env)"` | the endpoint and the key as variables of this shell |
 | `dsh-romeo --status` | the gateway, the model jobs, the tunnel |
 | `dsh-romeo --stop` | stops the model jobs and closes the tunnel |
-| `dsh-romeo --setup` | copies the model's fiche to ROMEO again |
+| `dsh-romeo --setup` | copies the models' fiches to ROMEO again |
+| `dsh-romeo --models kimi ...` | the models for this run, before any other option (see below) |
 
 `--launch` combines with the others: `dsh-romeo --launch --run opencode`. While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
+
+## Models
+
+| `--models` / `DSH_ROMEO_MODELS` | Agent | Subagents | Jobs |
+|---|---|---|---|
+| `deepseek` (default) | DeepSeek-V4.1-Flash-1017 | the same | 2 nodes, 8 GH200 each |
+| `kimi` | Kimi-K3.1-Pro | the same | 8 nodes, 32 GH200: one job at most within ROMEO's 60-GPU account limit |
+| `kimi+deepseek` | Kimi-K3.1-Pro | DeepSeek-V4.1-Flash-1017 | one Kimi job and one DeepSeek job (40 GPUs) |
+
+`dsh-romeo --models kimi+deepseek --launch` submits both jobs (the DeepSeek one only if none runs) and waits until both models answer. dsh then starts on Kimi, with both models in its model list, and its `subagent` tool sends subagents to DeepSeek: the faster, cheaper model for delegated work, Kimi for the main thread. `subagent_fork` children keep Kimi, since they continue the agent's own conversation. `--status` and `--stop` cover the jobs of both models. With `--run`, Claude Code's small model (`ANTHROPIC_DEFAULT_HAIKU_MODEL`) and opencode's `small_model` go to DeepSeek; `--env` adds `DSH_ROMEO_SUB_MODEL`.
+
+The Kimi weights and its vLLM engine live on project `r260105`'s storage (see [Tuning](tuning.md#kimi-k31-pro)): its fiche works for that project's members.
 
 ## Where the agents work
 
@@ -79,7 +92,8 @@ For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 |---|---|---|
 | `ROMEO_PROJECT` | asked | Slurm project code charged for the model jobs |
 | `ROMEO_SSH_HOST` | `romeo` | ssh alias of a ROMEO login node |
-| `DSH_ROMEO_FICHE` | `dsh-deepseek-v4.1-flash-1017-1m` | `romeollmtool` fiche of the model; `deepseek-v4.1-flash-vllm` is ROMEO's validated one (1 node, 262K context, longer to load) ; `dsh-kimi-k3.1-pro-1m` is Kimi-K3.1-Pro (8 nodes, 32 GPUs, experimental: see [Tuning](tuning.md#kimi-k31-pro)) |
+| `DSH_ROMEO_MODELS` | `deepseek` | `deepseek`, `kimi` or `kimi+deepseek` (see [Models](#models)); `--models` overrides it for one run |
+| `DSH_ROMEO_FICHE` | empty | a `romeollmtool` fiche of your own for the agent's model, e.g. `deepseek-v4.1-flash-vllm`, ROMEO's validated one (1 node, 262K context, longer to load) |
 | `DSH_ROMEO_TIME` | `08:00:00` | duration of a model job (24 h at most) |
 | `DSH_ROMEO_EFFORT` | `max` | default reasoning effort: `none`, `low`, `high`, `max` |
 | `DSH_ROMEO_PORT` | `11318` | local port of the tunnel |

@@ -45,6 +45,8 @@ ask() {  # ask "question" default -> answer (the default without a terminal or w
 [ -f "$CONFIG_DIR/config" ] && . "$CONFIG_DIR/config"
 # The September weights' fiche, the default before 2026-10-28: move to the 1017 one.
 [ "${DSH_ROMEO_FICHE:-}" = dsh-deepseek-v4.1-flash-1m ] && DSH_ROMEO_FICHE=dsh-deepseek-v4.1-flash-1017-1m
+# The 1017 fiche, the default before the choice of models (2026-11-04): DSH_ROMEO_MODELS says it now.
+[ "${DSH_ROMEO_FICHE:-}" = dsh-deepseek-v4.1-flash-1017-1m ] && DSH_ROMEO_FICHE=
 HOST=${HOST:-${ROMEO_SSH_HOST:-romeo}}
 PROJECT=${PROJECT:-${ROMEO_PROJECT:-}}
 
@@ -120,9 +122,12 @@ cat >"$CONFIG_DIR/config" <<EOF
 # dsh-romeo settings (sourced by bin/dsh-romeo). A variable set in the environment wins.
 ROMEO_SSH_HOST=\${ROMEO_SSH_HOST:-$HOST}
 ROMEO_PROJECT=\${ROMEO_PROJECT:-$PROJECT}
-# romeollmtool fiche of the model: dsh-deepseek-v4.1-flash-1017-1m (2 nodes, 1M context, the fastest)
-# or deepseek-v4.1-flash-vllm (ROMEO's validated fiche: 1 node, 262K context, slower to load).
-DSH_ROMEO_FICHE=\${DSH_ROMEO_FICHE:-${DSH_ROMEO_FICHE:-dsh-deepseek-v4.1-flash-1017-1m}}
+# Models: deepseek (DeepSeek-V4.1-Flash-1017, 2 nodes), kimi (Kimi-K3.1-Pro, 8 nodes), or
+# kimi+deepseek (Kimi as the agent, DeepSeek for its subagents). dsh-romeo --models overrides it.
+DSH_ROMEO_MODELS=\${DSH_ROMEO_MODELS:-${DSH_ROMEO_MODELS:-deepseek}}
+# A romeollmtool fiche of your own for the agent's model, e.g. deepseek-v4.1-flash-vllm (ROMEO's
+# validated fiche: 1 node, 262K context). Empty: the fiche of the models above.
+DSH_ROMEO_FICHE=\${DSH_ROMEO_FICHE:-${DSH_ROMEO_FICHE:-}}
 # Model job duration (HH:MM:SS, at most 24:00:00). The job is billed while it runs: --stop it.
 DSH_ROMEO_TIME=\${DSH_ROMEO_TIME:-${DSH_ROMEO_TIME:-08:00:00}}
 # Local port of the tunnel to the gateway.

@@ -1,0 +1,36 @@
+# == @deepseek-ai/dsh-base
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+  disabled: true
+# == @deepseek-ai/dsh-web-app
+- id: preset-standard
+  name: '@deepseek-ai/dsh-agent-preset'
+  config:
+    id: standard
+    plugins:
+      - id: persona
+        name: '@deepseek-ai/dsh-persona'
+        config:
+          prefix: |
+            First paragraph.
+
+            Second paragraph.
+      - id: delegation
+        name: '@deepseek-ai/dsh-group'
+        plugins:
+          - id: tool-subagent
+            name: '@deepseek-ai/dsh-tool-subagent'
+            config:
+              provider: spawn
+              toolName: subagent
+              modelSelection: true
+          - id: tool-subagent-fork
+            name: '@deepseek-ai/dsh-tool-subagent'
+            config:
+              provider: fork
+              toolName: subagent_fork
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'

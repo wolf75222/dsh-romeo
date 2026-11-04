@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# dsh-romeo: DeepSeek Harness (dsh) on your computer, DeepSeek-V4.1-Flash-1017 on ROMEO's GPUs.
+# dsh-romeo: DeepSeek Harness (dsh) on your computer, DeepSeek-V4.1-Flash-1017 or Kimi-K3.1-Pro on ROMEO's GPUs.
 #
 #   dsh-romeo                     open the dsh Web UI (every dsh profile and argument passes through:
 #   dsh-romeo headless "a task"     dsh-romeo web --port 3000, dsh-romeo headless "...")
+#   dsh-romeo --models M ...      the models, before any other option: deepseek (default), kimi, or
+#                                   kimi+deepseek (Kimi as the agent, DeepSeek for its subagents)
 #   dsh-romeo --launch [N]        submit N model jobs (default 1), wait for the model, then open dsh
 #   dsh-romeo --desktop           the DeepSeek Harness desktop app (macOS) instead of the Web UI
 #   dsh-romeo --run CMD [ARGS]    any other client instead of dsh: opencode, codex, claude, aider, python...
 #   dsh-romeo --serve             only the model and the tunnel: an OpenAI-compatible endpoint for any tool
 #   dsh-romeo --env               print the endpoint as shell variables: eval "$(dsh-romeo --env)"
 #   dsh-romeo --status            gateway, model jobs, tunnel
-#   dsh-romeo --stop              cancel the model jobs of dsh-romeo's fiche, close the tunnel
-#   dsh-romeo --setup             copy the model fiche to ROMEO again (after an update)
+#   dsh-romeo --stop              cancel the model jobs of the models' fiches, close the tunnel
+#   dsh-romeo --setup             copy the model fiches to ROMEO again (after an update)
 #   dsh-romeo --version | --help
 # --launch combines with the others: dsh-romeo --launch --run opencode.
+# With kimi+deepseek, --launch N submits N Kimi jobs and one DeepSeek job if none is there.
 #
 # What it does: keeps the romeollmtool gateway running on the ROMEO login node, launches the
 # model with romeollmtool when asked, opens one SSH connection that carries a tunnel
@@ -39,7 +42,8 @@ CONFIG_DIR=${DSH_ROMEO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo}
 [ -f "$CONFIG_DIR/config" ] && . "$CONFIG_DIR/config"
 : "${ROMEO_SSH_HOST:=romeo}"                             # ssh alias of a ROMEO login node
 : "${ROMEO_PROJECT:=}"                                   # Slurm project code charged for the model jobs
-: "${DSH_ROMEO_FICHE:=dsh-deepseek-v4.1-flash-1017-1m}"       # romeollmtool fiche of the model
+: "${DSH_ROMEO_MODELS:=deepseek}"                        # deepseek, kimi, or kimi+deepseek (DeepSeek subagents)
+: "${DSH_ROMEO_FICHE:=}"                                 # a fiche of your own for the agent's model
 : "${DSH_ROMEO_TIME:=08:00:00}"                          # model job duration (max 24:00:00)
 : "${DSH_ROMEO_PORT:=11318}"                             # local end of the tunnel
 : "${DSH_ROMEO_EFFORT:=max}"                             # default reasoning effort: none, low, high, max
@@ -50,7 +54,8 @@ CONFIG_DIR=${DSH_ROMEO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo}
 : "${ROMEOLLMTOOL:=/apps/romeotools/romeollmtool/romeollmtool}"
 
 HOST=$ROMEO_SSH_HOST
-FICHE=$DSH_ROMEO_FICHE
+FICHE_DEEPSEEK=dsh-deepseek-v4.1-flash-1017-1m
+FICHE_KIMI=dsh-kimi-k3.1-pro-1m
 PORT=$DSH_ROMEO_PORT
 # Control socket of the shared SSH connection (Unix socket paths are limited to ~100 bytes).
 CTL=${DSH_ROMEO_SOCKET:-$HOME/.ssh/dsh-romeo-$HOST.sock}
@@ -62,7 +67,20 @@ say() { printf '%s\n' "${B}dsh-romeo${N} $*" >&2; }
 note() { printf '%s\n' "          ${D}$*${N}" >&2; }
 die() { printf '%s\n' "${R}dsh-romeo:${N} $*" >&2; exit 1; }
 
-usage() { sed -n '2,15p' "$src" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,18p' "$src" | sed 's/^# \{0,1\}//'; }
+
+# FICHE: the agent's model; SUB_FICHE: its subagents' model, empty when they use the same one.
+resolve_models() {
+  case $DSH_ROMEO_MODELS in
+    deepseek) FICHE=$FICHE_DEEPSEEK SUB_FICHE='' ;;
+    kimi) FICHE=$FICHE_KIMI SUB_FICHE='' ;;
+    kimi+deepseek) FICHE=$FICHE_KIMI SUB_FICHE=$FICHE_DEEPSEEK ;;
+    *) die "models: deepseek, kimi or kimi+deepseek, not '$DSH_ROMEO_MODELS'" ;;
+  esac
+  # The DeepSeek fiche was the DSH_ROMEO_FICHE default before the choice of models.
+  case $DSH_ROMEO_FICHE in '' | "$FICHE_DEEPSEEK") ;; *) FICHE=$DSH_ROMEO_FICHE ;; esac
+  FICHES=$FICHE${SUB_FICHE:+ $SUB_FICHE}
+}
 
 # ---------------------------------------------------------------- SSH
 
@@ -106,13 +124,14 @@ ensure_gateway() {
   GATEWAY=$url
 }
 
-# The fiche as romeollmtool will launch it: served model name, context and output limits.
+# A fiche as romeollmtool will launch it: served model name, context and output limits, in
+# MODEL CONTEXT MAX_TOKENS LABEL, or SUB_MODEL... with $2 = SUB_.
 read_fiche() {
-  local show
-  show=$(rlt catalog show "$FICHE" 2>/dev/null) || true
+  local fiche=$1 p=${2:-} show
+  show=$(rlt catalog show "$fiche" 2>/dev/null) || true
   printf '%s\n' "$show" | grep -q '^vllm:' \
-    || die "fiche '$FICHE' not found on ROMEO. Run: dsh-romeo --setup"
-  eval "$(printf '%s\n' "$show" | awk '
+    || die "fiche '$fiche' not found on ROMEO. Run: dsh-romeo --setup"
+  eval "$(printf '%s\n' "$show" | awk -v p="$p" '
     /^vllm:/ { v = 1; next }
     /^generation:/ { g = 1; next }
     /^[^ -]/ { v = 0; g = 0 }
@@ -123,32 +142,49 @@ read_fiche() {
     END {
       name = served != "" ? served : model
       gsub(/["\047]/, "", name); gsub(/["\047]/, "", out)
-      printf "MODEL=%s CONTEXT=%s MAX_TOKENS=%s\n", name, ctx + 0 ? ctx : 262144, out + 0 ? out : 65536
+      printf "%sMODEL=%s %sCONTEXT=%s %sMAX_TOKENS=%s\n", p, name, p, ctx + 0 ? ctx : 262144, p, out + 0 ? out : 65536
     }')"
-  [ -n "$MODEL" ] || die "cannot read the served model name of fiche '$FICHE'"
-  model_family
+  local model=${p}MODEL
+  [ -n "${!model}" ] || die "cannot read the served model name of fiche '$fiche'"
+  printf -v "${p}LABEL" %s "$(label_of "${!model}")"
 }
 
-# The model's name in the clients.
-model_family() {
-  case $MODEL in
-    *kimi-k3.1*) LABEL=Kimi-K3.1-Pro ;;
-    *) LABEL=DeepSeek-V4.1-Flash-1017 ;;
+label_of() {  # the model's name in the clients
+  case $1 in
+    *kimi-k3.1*) echo Kimi-K3.1-Pro ;;
+    *) echo DeepSeek-V4.1-Flash-1017 ;;
   esac
 }
 
-jobs_of_fiche() {  # "jobid state elapsed left reason" for each model job of the fiche
-  rsh "squeue -u \$USER -h -n romeollmtool-$FICHE -o '%i %T %M %L %r'" || true
+read_fiches() {
+  read_fiche "$FICHE"
+  SUB_MODEL='' SUB_LABEL=''
+  [ -z "$SUB_FICHE" ] || read_fiche "$SUB_FICHE" SUB_
 }
 
-launch_jobs() {
-  local n=$1 out
+jobs_of_fiche() {  # "jobid state elapsed left reason" for each model job of fiche $1
+  rsh "squeue -u \$USER -h -n romeollmtool-$1 -o '%i %T %M %L %r'" || true
+}
+
+jobs_of_fiches() {
+  local f
+  for f in $FICHES; do jobs_of_fiche "$f"; done
+}
+
+launch_jobs() {  # $1 jobs of the agent's model, and one of the subagents' if it has none
+  local n=$1
   [ -n "$ROMEO_PROJECT" ] || die "no project code: set ROMEO_PROJECT in $CONFIG_DIR/config (rerun install.sh)"
-  for _ in $(seq 1 "$n"); do
-    out=$(rlt launch "$FICHE" --project-code "$ROMEO_PROJECT" --time "$DSH_ROMEO_TIME" --no-wait 2>&1) \
-      || { printf '%s\n' "$out" >&2; die "romeollmtool launch failed"; }
-    say "model job $(printf '%s\n' "$out" | grep -oE '[0-9]{5,}' | head -1) submitted ($FICHE, $DSH_ROMEO_TIME)"
-  done
+  # 32 GPUs per Kimi job, 60 per account: a second one would wait forever.
+  [ "$LABEL" != Kimi-K3.1-Pro ] || [ "$n" -eq 1 ] || die "Kimi-K3.1-Pro takes 32 GPUs: one job fits in ROMEO's 60-GPU limit"
+  for _ in $(seq 1 "$n"); do launch_one "$FICHE"; done
+  [ -z "$SUB_FICHE" ] || [ -n "$(jobs_of_fiche "$SUB_FICHE")" ] || launch_one "$SUB_FICHE"
+}
+
+launch_one() {
+  local out
+  out=$(rlt launch "$1" --project-code "$ROMEO_PROJECT" --time "$DSH_ROMEO_TIME" --no-wait 2>&1) \
+    || { printf '%s\n' "$out" >&2; die "romeollmtool launch failed"; }
+  say "model job $(printf '%s\n' "$out" | grep -oE '[0-9]{5,}' | head -1) submitted ($1, $DSH_ROMEO_TIME)"
 }
 
 # ---------------------------------------------------------------- tunnel and model
@@ -189,20 +225,30 @@ probe_models() {  # the gateway's model list, through the tunnel
   curl -sf -m 10 "http://127.0.0.1:$PORT/v1/models" -H "Authorization: Bearer $ROMEO_LLM_KEY"
 }
 
-model_answers() {  # a one-token completion: the model is loaded and serving
+model_answers() {  # a one-token completion: model $1 is loaded and serving
   local code
   code=$(curl -s -o /dev/null -m 60 -w '%{http_code}' "http://127.0.0.1:$PORT/v1/chat/completions" \
     -H "Authorization: Bearer $ROMEO_LLM_KEY" -H 'Content-Type: application/json' \
-    -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"reasoning_effort\":\"none\"}" || true)
+    -d "{\"model\":\"$1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"reasoning_effort\":\"none\"}" || true)
   [ "$code" = 200 ]
+}
+
+models_answer() { model_answers "$MODEL" && { [ -z "$SUB_MODEL" ] || model_answers "$SUB_MODEL"; }; }
+
+# Dies when a model that does not answer has no job left to load it.
+check_jobs() {  # $1: what to say
+  if ! model_answers "$MODEL" && [ -z "$(jobs_of_fiche "$FICHE")" ]; then die "$1 ($FICHE)"; fi
+  if [ -n "$SUB_FICHE" ] && ! model_answers "$SUB_MODEL" && [ -z "$(jobs_of_fiche "$SUB_FICHE")" ]; then
+    die "$1 ($SUB_FICHE)"
+  fi
 }
 
 wait_for_model() {
   local start jobs line shown='' width
   start=$(date +%s)
-  while ! model_answers; do
-    jobs=$(jobs_of_fiche)
-    [ -n "$jobs" ] || die "no model job left (it ended or failed): ssh $HOST $ROMEOLLMTOOL logs"
+  while ! models_answer; do
+    check_jobs "no model job left (it ended or failed): ssh $HOST $ROMEOLLMTOOL logs"
+    jobs=$(jobs_of_fiches)
     line=$(waiting_line "$jobs" $(( $(date +%s) - start )))
     if [ -t 2 ]; then  # one line, rewritten in place: never wider than the terminal
       width=$(tput cols 2>/dev/null || echo 100)
@@ -232,13 +278,51 @@ summary() {  # one line for the jobs: "job 123 running 4:10" or "job 123 pending
 
 # ---------------------------------------------------------------- dsh
 
-write_overlay() {
+overlay_model() {  # $1 model, $2 name, $3 context, $4 output limit
+  cat <<YAML
+          - id: $1
+            name: $2 (ROMEO)
+            contextWindow: $3
+            maxTokens: $4
+            input: [ text ]
+            reasoningEfforts: { off: none, low: low, high: high, max: max }
+YAML
+}
+
+# The subagents' model: dsh composes its "subagent" tool inside each agent preset, which a patch
+# cannot reach row by row, so the rows holding one are restated whole from dsh's own composition
+# (dsh --dump-config) with agentOptions added to that tool. $1: the dsh profile.
+subagent_patch() {
+  local dump
+  dump=$("${DSH_ROMEO_DSH:-dsh}" --profile "$1" --dump-config 2>/dev/null) \
+    && grep -q -- '- id: tool-subagent$' <<<"$dump" \
+    || { say "${Y}cannot read dsh's composition${N}: subagents keep $LABEL"; return 0; }
+  printf '# Subagents (the "subagent" tool) on %s.\n' "$SUB_LABEL"
+  awk -v model="$SUB_MODEL" -v effort="$DSH_ROMEO_EFFORT" '
+    function flush() { if (hit) printf "%s", row; row = ""; hit = 0 }
+    function lead(s) { match(s, /^ */); return RLENGTH }
+    /^#/ { next }  # the dump'\''s source comments; blank lines belong to block scalars
+    /^- / { flush(); inside = 0 }
+    {
+      row = row $0 "\n"
+      if ($0 ~ /^ *- id: tool-subagent$/) { sub_at = lead($0); inside = 1; next }
+      if (inside && $0 ~ /^ *- / && lead($0) <= sub_at) inside = 0
+      if (inside && $0 ~ /^ *config:$/ && lead($0) == sub_at + 2) {
+        pad = sprintf("%" (sub_at + 4) "s", "")
+        row = row pad "agentOptions:\n" pad "  provider: romeo\n" pad "  model: " model "\n" pad "  reasoningEffort: " effort "\n"
+        hit = 1; inside = 0
+      }
+    }
+    END { flush() }' <<<"$dump"
+}
+
+write_overlay() {  # $1: the dsh profile
   mkdir -p "$CONFIG_DIR"
   {
     cat <<YAML
 # Written by dsh-romeo at every start: edit $CONFIG_DIR/config instead.
-# Adds the "romeo" provider ($LABEL on ROMEO, through the SSH tunnel) and makes it
-# the default model. The API key comes from the ROMEO_LLM_KEY environment variable.
+# Adds the "romeo" provider ($LABEL${SUB_MODEL:+ and $SUB_LABEL} on ROMEO, through the SSH tunnel)
+# and makes it the default model. The API key comes from the ROMEO_LLM_KEY environment variable.
 - id: llm-pi-ai
   config:
     providers:
@@ -254,18 +338,17 @@ write_overlay() {
         reasoning: $DSH_ROMEO_EFFORT
         streamIdleTimeoutMs: 600000
         models:
-          - id: $MODEL
-            name: $LABEL (ROMEO)
-            contextWindow: $CONTEXT
-            maxTokens: $MAX_TOKENS
-            input: [ text ]
-            reasoningEfforts: { off: none, low: low, high: high, max: max }
+YAML
+    overlay_model "$MODEL" "$LABEL" "$CONTEXT" "$MAX_TOKENS"
+    [ -z "$SUB_MODEL" ] || overlay_model "$SUB_MODEL" "$SUB_LABEL" "$SUB_CONTEXT" "$SUB_MAX_TOKENS"
+    cat <<YAML
 - id: agent-default-model
   config:
     provider: romeo
     model: $MODEL
     reasoningEffort: $DSH_ROMEO_EFFORT
 YAML
+    [ -z "$SUB_MODEL" ] || subagent_patch "${1:-web}"
     if [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
       cat <<YAML
 # Web search through SearXNG (DSH_ROMEO_SEARXNG_URL).
@@ -289,8 +372,8 @@ YAML
 
 run_dsh() {
   command -v "${DSH_ROMEO_DSH:-dsh}" >/dev/null || die "dsh is not installed: npm install -g @deepseek-ai/dsh"
-  write_overlay
   local profile=${1:-web}
+  write_overlay "$profile"
   [ $# -gt 0 ] && shift
   export ROMEO_LLM_KEY
   exec "${DSH_ROMEO_DSH:-dsh}" "$profile" --patch "$OVERLAY" "$@"
@@ -303,7 +386,7 @@ DESKTOP_APP=${DSH_ROMEO_DESKTOP_APP:-DeepSeek Harness}
 run_desktop() {
   [ "$(uname)" = Darwin ] || die "--desktop: the DeepSeek Harness desktop app is for macOS"
   open -Ra "$DESKTOP_APP" 2>/dev/null || die "the $DESKTOP_APP app is not installed (https://github.com/deepseek-ai/deepseek-harness/releases)"
-  write_overlay
+  write_overlay web  # the desktop profile is the app's own; its presets are the Web UI's
   local dir=$HOME/.dsh/profiles/desktop
   local patch=$dir/cordis.patch.yml
   mkdir -p "$dir"
@@ -328,19 +411,25 @@ run_desktop() {
 # The endpoint in the variables that OpenAI- and Anthropic-compatible clients read.
 export_endpoint() {
   BASE_URL=http://127.0.0.1:$PORT/v1
-  export ROMEO_LLM_KEY DSH_ROMEO_MODEL=$MODEL DSH_ROMEO_BASE_URL=$BASE_URL
+  local small=${SUB_MODEL:-$MODEL}  # Claude Code runs its subagents and small tasks on Haiku
+  export ROMEO_LLM_KEY DSH_ROMEO_MODEL=$MODEL DSH_ROMEO_SUB_MODEL=$small DSH_ROMEO_BASE_URL=$BASE_URL
   export OPENAI_BASE_URL=$BASE_URL OPENAI_API_BASE=$BASE_URL OPENAI_API_KEY=$ROMEO_LLM_KEY
   export ANTHROPIC_BASE_URL=http://127.0.0.1:$PORT ANTHROPIC_AUTH_TOKEN=$ROMEO_LLM_KEY ANTHROPIC_MODEL=$MODEL
-  export ANTHROPIC_DEFAULT_OPUS_MODEL=$MODEL ANTHROPIC_DEFAULT_SONNET_MODEL=$MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL=$MODEL
-  export ANTHROPIC_SMALL_FAST_MODEL=$MODEL CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+  export ANTHROPIC_DEFAULT_OPUS_MODEL=$MODEL ANTHROPIC_DEFAULT_SONNET_MODEL=$MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL=$small
+  export ANTHROPIC_SMALL_FAST_MODEL=$small CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
   export AIDER_MODEL=openai/$MODEL
   write_opencode_config
   export OPENCODE_CONFIG=$CONFIG_DIR/opencode.json
 }
 
+opencode_model() {  # $1 model, $2 name, $3 context, $4 output limit
+  printf '        "%s": {\n          "name": "%s (ROMEO)",\n          "reasoning": true,\n          "tool_call": true,\n          "limit": { "context": %s, "output": %s }\n        }' "$@"
+}
+
 write_opencode_config() {  # a "romeo" provider for opencode; the key stays in the environment
   mkdir -p "$CONFIG_DIR"
-  cat >"$CONFIG_DIR/opencode.json.tmp" <<JSON
+  {
+    cat <<JSON
 {
   "\$schema": "https://opencode.ai/config.json",
   "provider": {
@@ -349,18 +438,19 @@ write_opencode_config() {  # a "romeo" provider for opencode; the key stays in t
       "name": "ROMEO",
       "options": { "baseURL": "http://127.0.0.1:$PORT/v1", "apiKey": "{env:ROMEO_LLM_KEY}" },
       "models": {
-        "$MODEL": {
-          "name": "$LABEL (ROMEO)",
-          "reasoning": true,
-          "tool_call": true,
-          "limit": { "context": $CONTEXT, "output": $MAX_TOKENS }
-        }
+JSON
+    opencode_model "$MODEL" "$LABEL" "$CONTEXT" "$MAX_TOKENS"
+    [ -z "$SUB_MODEL" ] || { printf ',\n'; opencode_model "$SUB_MODEL" "$SUB_LABEL" "$SUB_CONTEXT" "$SUB_MAX_TOKENS"; }
+    cat <<JSON
+
       }
     }
   },
-  "model": "romeo/$MODEL"
+  "model": "romeo/$MODEL",
+  "small_model": "romeo/${SUB_MODEL:-$MODEL}"
 }
 JSON
+  } >"$CONFIG_DIR/opencode.json.tmp"
   mv "$CONFIG_DIR/opencode.json.tmp" "$CONFIG_DIR/opencode.json"
 }
 
@@ -380,7 +470,7 @@ run_client() {  # exec a client with the endpoint in its environment (and in its
 print_env() {
   export_endpoint
   local v
-  for v in ROMEO_LLM_KEY DSH_ROMEO_MODEL DSH_ROMEO_BASE_URL OPENAI_BASE_URL OPENAI_API_BASE OPENAI_API_KEY \
+  for v in ROMEO_LLM_KEY DSH_ROMEO_MODEL DSH_ROMEO_SUB_MODEL DSH_ROMEO_BASE_URL OPENAI_BASE_URL OPENAI_API_BASE OPENAI_API_KEY \
            ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
            ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_SMALL_FAST_MODEL \
            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC AIDER_MODEL OPENCODE_CONFIG; do
@@ -390,9 +480,10 @@ print_env() {
 
 print_serve() {
   cat <<TEXT
-$LABEL on ROMEO, an OpenAI-compatible endpoint for any client:
+$LABEL${SUB_MODEL:+ and $SUB_LABEL} on ROMEO, an OpenAI-compatible endpoint for any client:
   base URL   http://127.0.0.1:$PORT/v1
-  model      $MODEL
+  model      $MODEL${SUB_MODEL:+
+  subagents  $SUB_MODEL}
   API key    the gateway's: eval "\$(dsh-romeo --env)" puts it in OPENAI_API_KEY and ROMEO_LLM_KEY
 The tunnel stays open until dsh-romeo --stop (after this computer sleeps, run dsh-romeo --serve again).
 TEXT
@@ -411,14 +502,17 @@ cmd_status() {
     if [ "${procs:-0}" -gt 0 ]; then say "fast gateway ${G}running${N} ${D}(port $DSH_ROMEO_FAST_PORT, $procs processes)${N}"
     else say "fast gateway ${Y}stopped${N}"; fi
   fi
-  jobs=$(jobs_of_fiche)
-  if [ -n "$jobs" ]; then
-    printf '%s\n' "$jobs" | while read -r id st el left _; do
-      say "model job $id $(printf '%s' "$st" | tr 'A-Z' 'a-z') ${D}elapsed $el, left $left${N}"
-    done
-  else
-    say "no model job of $FICHE ${D}(dsh-romeo --launch)${N}"
-  fi
+  local f
+  for f in $FICHES; do
+    jobs=$(jobs_of_fiche "$f")
+    if [ -n "$jobs" ]; then
+      printf '%s\n' "$jobs" | while read -r id st el left _; do
+        say "model job $id $(printf '%s' "$st" | tr 'A-Z' 'a-z') ${D}$f, elapsed $el, left $left${N}"
+      done
+    else
+      say "no model job of $f ${D}(dsh-romeo --launch)${N}"
+    fi
+  done
   if curl -s -m 3 -o /dev/null "http://127.0.0.1:$PORT/v1/models"; then
     say "tunnel ${G}open${N} 127.0.0.1:$PORT"
   else
@@ -428,16 +522,18 @@ cmd_status() {
 
 cmd_stop() {
   connect
-  local jobs id
-  jobs=$(jobs_of_fiche)
-  if [ -z "$jobs" ]; then
-    say "no model job of $FICHE"
-  else
-    for id in $(printf '%s\n' "$jobs" | awk '{print $1}'); do
-      rlt stop "$id" </dev/null >/dev/null 2>&1 || rsh "scancel $id"
-      say "model job $id stopped"
-    done
-  fi
+  local jobs id f
+  for f in $FICHES; do
+    jobs=$(jobs_of_fiche "$f")
+    if [ -z "$jobs" ]; then
+      say "no model job of $f"
+    else
+      for id in $(printf '%s\n' "$jobs" | awk '{print $1}'); do
+        rlt stop "$id" </dev/null >/dev/null 2>&1 || rsh "scancel $id"
+        say "model job $id stopped ${D}($f)${N}"
+      done
+    fi
+  done
   if [ "$DSH_ROMEO_GATEWAY" = fast ]; then
     rsh "pkill -u \$USER -f '$FAST_PATTERN'" && say "fast gateway stopped"
   fi
@@ -456,30 +552,33 @@ cmd_setup() {
   rlt version >/dev/null 2>&1 || die "romeollmtool not found at $ROMEOLLMTOOL on ROMEO"
 }
 
-prepare() {  # $1: jobs to launch first. Then the model answers, the tunnel is open, ROMEO_LLM_KEY is set.
-  local launch=$1 jobs
+prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is open, ROMEO_LLM_KEY is set.
+  local launch=$1
   connect
   ensure_gateway
-  read_fiche
-  jobs=$(jobs_of_fiche)
-  if [ "$launch" -gt 0 ]; then
-    launch_jobs "$launch"
-    jobs=$(jobs_of_fiche)
-  fi
+  read_fiches
+  [ "$launch" -eq 0 ] || launch_jobs "$launch"
   ROMEO_LLM_KEY=$(rlt gateway show-key | tr -d '[:space:]')
   [ -n "$ROMEO_LLM_KEY" ] || die "cannot read the gateway key"
   [ "$DSH_ROMEO_GATEWAY" = fast ] && ensure_fast_gateway
   open_tunnel
-  if ! model_answers; then
-    [ -n "$jobs" ] || die "no $FICHE model job on ROMEO. Start one with: dsh-romeo --launch"
-    note "the model loads in about 10 min once the job runs; the queue can add more"
+  if ! models_answer; then
+    check_jobs "no model job on ROMEO. Start one with: dsh-romeo${SUB_FICHE:+ --models $DSH_ROMEO_MODELS} --launch"
+    note "a model loads in about 10 min once its job runs (Kimi: 12 min); the queue can add more"
     wait_for_model
   fi
   say "$LABEL ${G}ready${N} ${D}($MODEL, http://127.0.0.1:$PORT/v1)${N}"
+  [ -z "$SUB_MODEL" ] || say "$SUB_LABEL ${G}ready${N} for the subagents ${D}($SUB_MODEL)${N}"
 }
 
 main() {
   local launch=0
+  if [ "${1:-}" = --models ]; then
+    [ $# -ge 2 ] || die "--models takes deepseek, kimi or kimi+deepseek"
+    DSH_ROMEO_MODELS=$2
+    shift 2
+  fi
+  resolve_models
   case "${1:-}" in
     -h|--help) usage; exit 0 ;;
     -V|--version) echo "dsh-romeo $VERSION"; exit 0 ;;

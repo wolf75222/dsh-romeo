@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fake gateway: /v1/models, and /v1/chat/completions answering 503 until a job has run FAKE_LOAD_SECONDS."""
+"""Fake gateway: /v1/models, and /v1/chat/completions answering 503 for a model until a job of the
+fiche of the same name has run FAKE_LOAD_SECONDS."""
 import json, os, sys, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -7,12 +8,12 @@ STATE = os.environ["FAKE_ROMEO_STATE"]
 LOAD = float(os.environ.get("FAKE_LOAD_SECONDS", "2"))
 
 
-def ready():
+def ready_models():
     try:
-        starts = [float(line.split()[2]) for line in open(os.path.join(STATE, "jobs")) if line.strip()]
+        jobs = [line.split() for line in open(os.path.join(STATE, "jobs")) if line.strip()]
     except FileNotFoundError:
-        return False
-    return any(time.time() - s >= LOAD for s in starts)
+        return set()
+    return {fiche for _, fiche, start in jobs if time.time() - float(start) >= LOAD}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -35,12 +36,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.authorized():
-            self.reply(200, {"data": [{"id": "dsh-deepseek-v4.1-flash-1017-1m"}] if ready() else []})
+            self.reply(200, {"data": [{"id": m} for m in sorted(ready_models())]})
 
     def do_POST(self):
-        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         if self.authorized():
-            self.reply(200, {"choices": [{"message": {"content": "hi"}}]}) if ready() else self.reply(503, {"error": "loading"})
+            if body.get("model") in ready_models():
+                self.reply(200, {"choices": [{"message": {"content": "hi"}}]})
+            else:
+                self.reply(503, {"error": "loading"})
 
 
 HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
