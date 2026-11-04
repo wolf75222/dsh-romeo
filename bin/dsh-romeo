@@ -42,7 +42,7 @@ CONFIG_DIR=${DSH_ROMEO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo}
 : "${DSH_ROMEO_FICHE:=dsh-deepseek-v4.1-flash-1017-1m}"       # romeollmtool fiche of the model
 : "${DSH_ROMEO_TIME:=08:00:00}"                          # model job duration (max 24:00:00)
 : "${DSH_ROMEO_PORT:=11318}"                             # local end of the tunnel
-: "${DSH_ROMEO_EFFORT:=max}"                             # default reasoning effort: none (DeepSeek only), low, high, max
+: "${DSH_ROMEO_EFFORT:=max}"                             # default reasoning effort: none, low, high, max
 : "${DSH_ROMEO_SEARXNG_URL:=}"                           # SearXNG for web search, e.g. http://127.0.0.1:8888
 : "${DSH_ROMEO_GATEWAY:=standard}"                       # standard, or fast: no 100-stream cap, affinity
 : "${DSH_ROMEO_FAST_PORT:=11320}"                        # port of the fast gateway on the login node
@@ -129,11 +129,11 @@ read_fiche() {
   model_family
 }
 
-# The model's name in the clients, and its reasoning efforts (Kimi has no "none").
+# The model's name in the clients.
 model_family() {
   case $MODEL in
-    *kimi-k3.1*) LABEL=Kimi-K3.1-Pro PROBE_EFFORT=low EFFORTS='{ low: low, high: high, max: max }' ;;
-    *) LABEL=DeepSeek-V4.1-Flash-1017 PROBE_EFFORT=none EFFORTS='{ off: none, low: low, high: high, max: max }' ;;
+    *kimi-k3.1*) LABEL=Kimi-K3.1-Pro ;;
+    *) LABEL=DeepSeek-V4.1-Flash-1017 ;;
   esac
 }
 
@@ -193,7 +193,7 @@ model_answers() {  # a one-token completion: the model is loaded and serving
   local code
   code=$(curl -s -o /dev/null -m 60 -w '%{http_code}' "http://127.0.0.1:$PORT/v1/chat/completions" \
     -H "Authorization: Bearer $ROMEO_LLM_KEY" -H 'Content-Type: application/json' \
-    -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"reasoning_effort\":\"$PROBE_EFFORT\"}" || true)
+    -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"reasoning_effort\":\"none\"}" || true)
   [ "$code" = 200 ]
 }
 
@@ -259,7 +259,7 @@ write_overlay() {
             contextWindow: $CONTEXT
             maxTokens: $MAX_TOKENS
             input: [ text ]
-            reasoningEfforts: $EFFORTS
+            reasoningEfforts: { off: none, low: low, high: high, max: max }
 - id: agent-default-model
   config:
     provider: romeo

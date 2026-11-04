@@ -19,6 +19,18 @@ Tried on the 1017 weights (2026-10-28) and left out: data parallelism over 2 x T
 
 The fiche is [share/fiches/dsh-deepseek-v4.1-flash-1017-1m.yaml](../share/fiches/dsh-deepseek-v4.1-flash-1017-1m.yaml).
 
+## Kimi-K3.1-Pro
+
+`DSH_ROMEO_FICHE=dsh-kimi-k3.1-pro-1m` serves Kimi-K3.1-Pro instead (experimental): 1.56 TB of MXFP4 weights on 8 nodes (32 GH200, one replica within the 60-GPU account limit), 1M context, 21.1M tokens of KV cache. No vLLM release has K3.1 yet ([vllm-project/vllm#65685](https://github.com/vllm-project/vllm/pull/65685)): the fiche points to a personal engine (`engine_dir:`) and to weights on project `r260105`; other projects stage their own and change both paths.
+
+It starts from the Kimi K3 measurements (October 2026): TP8 x PP4, DCP8, `--no-async-scheduling`, fastsafetensors, Marlin for the MXFP4 experts, `--gpu-memory-utilization 0.78`. An A/B on ROMEO (2026-11-04) added breakable CUDA graphs: K3.1 has no compiled submodule, so without them every mixed step runs eager (+4 to +11 % per agent).
+
+| Agents (16K prompts) | 1 | 4 | 9 | 16 |
+|---|---|---|---|---|
+| tok/s per agent | 30.5 | 15.4 | 12.0 | 9.4 |
+
+One agent at 763K tokens: 30 tok/s, 80 s to the first token. Left out: 16K prefill chunks (-28 to -39 % per agent from 4 agents), DSpark (no Hopper backend runs its draft under DCP; without DCP, 804K tokens of KV cache in all). The model starts in about 12 min, 6 of them reading the weights.
+
 ## The fast gateway
 
 `DSH_ROMEO_GATEWAY=fast` starts a second, unmanaged gateway on the login node ([share/gateway](../share/gateway)): `romeollmtool`'s own gateway with a patch loaded at start, the same key and the same jobs, 4 processes sharing the port, 8 hours of life, stopped by `dsh-romeo --stop`. If it cannot start (for example after an update of `romeollmtool`), dsh-romeo says so and uses the standard gateway.

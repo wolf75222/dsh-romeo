@@ -148,7 +148,6 @@ check "kimi: job of its fiche" grep -q "dsh-kimi-k3.1-pro-1m" "$FAKE_ROMEO_STATE
 check "kimi: ready" has "Kimi-K3.1-Pro"
 check "kimi overlay: its served model" grep -q "model: dsh-kimi-k3.1-pro-1m" "$overlay"
 check "kimi overlay: its name" grep -q "name: Kimi-K3.1-Pro (ROMEO)" "$overlay"
-check "kimi overlay: no reasoning off" bash -c "! grep -q 'off: none' '$overlay'"
 DSH_ROMEO_FICHE=dsh-kimi-k3.1-pro-1m run --stop
 
 DSH_ROMEO_FICHE=no-such-fiche run

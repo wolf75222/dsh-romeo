@@ -36,8 +36,17 @@
 # Plus what dsh-romeo kept for DeepSeek: 1M context, 256K output, 32 CPUs per
 # node, --stream-interval 4, Moonshot's sampling (temperature 1.0, top_p 0.95),
 # maximum reasoning by default.
-# DSpark (Inferact/Kimi-K3.1-Pro-DSpark-preview) is not on: on K3 its
-# non-causal MLA had no Hopper backend compatible with DCP. To measure again.
+# Measured on ROMEO (2026-11-04, 16K prompts unless said): 30.5 tok/s for one
+# agent, 15.4 each for 4, 12.0 for 9, 9.4 for 16 (150 tok/s in all); 30 tok/s
+# for one agent at 763K tokens (TTFT 80 s). 21.1M tokens of KV cache: 20 full
+# 1M contexts. About 5 % below K3 with the same settings (the DSA indexer).
+# Tried and left out:
+# - --max-num-batched-tokens 16384: -28 to -39 % per agent at 4 to 16 agents,
+#   KV cache 16.6M;
+# - DSpark (Inferact/Kimi-K3.1-Pro-DSpark-preview): no Hopper backend runs its
+#   non-causal draft MLA under DCP (FlashInfer MLA is SM100 only, FlashMLA
+#   refuses DCP); without DCP the KV cache holds 804K tokens, less than one
+#   1M context.
 # ==============================================================================
 
 id: dsh-kimi-k3.1-pro-1m
@@ -62,7 +71,9 @@ env:
   # Avoids a 21-min hang at start on K3 (TRTLLM barrier against a GEMM).
   VLLM_FLASHINFER_ALLREDUCE_BACKEND: "mnnvl"
   VLLM_USE_V2_MODEL_RUNNER: "1"
-  VLLM_USE_BREAKABLE_CUDAGRAPH: "0"
+  # K3.1 has no compiled submodule: without breakable graphs vLLM falls back to
+  # FULL_DECODE_ONLY and every mixed step runs eager. +4 to +11 % per agent.
+  VLLM_USE_BREAKABLE_CUDAGRAPH: "1"
   VLLM_ENGINE_READY_TIMEOUT_S: "7200"
   VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "3600"
   PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"

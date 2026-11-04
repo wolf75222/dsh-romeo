@@ -2,6 +2,10 @@
 
 [README](../README.md) · [Usage](usage.md) · [Other clients](clients.md) · [Tuning](tuning.md) · [How it works](how-it-works.md) · [Troubleshooting](troubleshooting.md) · **Changes** · [Development](development.md)
 
+## 2026-11-04
+
+- Kimi-K3.1-Pro, with `DSH_ROMEO_FICHE=dsh-kimi-k3.1-pro-1m`: 8 nodes, TP8 x PP4 x DCP8, 1M context, tuned by an A/B on ROMEO ([Tuning](tuning.md#kimi-k31-pro)). Tested on a real job: answers at the four reasoning efforts, parallel tool calls, 763K-token prompts. dsh, opencode and `--serve` show the model's own name.
+
 ## 2026-10-29
 
 - The `romeo` skill: the agent runs Slurm jobs on ROMEO (`x64cpu`, `armgpu`), Spack software and GPFS, from your computer over the shared SSH connection or on ROMEO itself. Written from the whole ROMEO 2025 documentation and checked on the cluster (test jobs on both architectures, then an agent given only the skill). `./install.sh` links it into `~/.agents/skills` (an existing `romeo` skill of yours is kept as `romeo.before-dsh-romeo`).
