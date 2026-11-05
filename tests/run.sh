@@ -70,6 +70,8 @@ check "--launch 9: refused" has "--launch takes 1 to 8 jobs"
 run --launch
 check "--launch: job submitted" has "model job 900001 submitted"
 check "--launch: waits, then ready" has "ready"
+check "ready: the gateway's URL" has "gateway  http://romeo1.example:$FAKE_GATEWAY_PORT/v1"
+check "ready: the local URL" has "local    http://127.0.0.1:$PORT/v1"
 check "--launch: dsh web with the overlay" grep -q "args: web --patch $DSH_ROMEO_CONFIG_DIR/dsh.patch.yml" "$FAKE_ROMEO_STATE/dsh-call"
 check "--launch: dsh gets the gateway key" grep -q "key: test-key" "$FAKE_ROMEO_STATE/dsh-call"
 overlay=$DSH_ROMEO_CONFIG_DIR/dsh.patch.yml

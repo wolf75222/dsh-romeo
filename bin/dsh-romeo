@@ -929,7 +929,9 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
     note "Ctrl-C stops waiting, not the job"
     wait_for_model
   fi
-  say "$LABEL ${G}ready${N} ${D}($MODEL, http://127.0.0.1:$PORT/v1)${N}"
+  say "$LABEL ${G}ready${N} ${D}($MODEL)${N}"
+  note "gateway  $GATEWAY  ${D}(on ROMEO; key: ssh $HOST $ROMEOLLMTOOL gateway show-key)"
+  note "local    http://127.0.0.1:$PORT/v1  (the tunnel to it, what dsh uses)"
   [ -z "$SUB_MODEL" ] || say "$SUB_LABEL ${G}ready${N} for the subagents ${D}($SUB_MODEL)${N}"
   [ -z "$VOICE_MODEL" ] || open_voice_tunnel
 }
