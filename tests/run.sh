@@ -221,6 +221,27 @@ check "kimi+deepseek --stop: both jobs" bash -c "! grep -q . '$FAKE_ROMEO_STATE/
 run --models deepseek --status
 check "models: back to deepseek" has "no model job of dsh-deepseek-v4.1-flash-1017-1m"
 
+# Voice input: a Whisper job, dsh's microphone wired to it, remembered like --models.
+run --voice on --launch headless "voice"
+check "voice: a Whisper job" grep -q " dsh-whisper-large-v3-turbo " "$FAKE_ROMEO_STATE/jobs"
+check "voice: ready" has "voice input ready"
+check "voice overlay: the provider plugin" grep -q "name: $ROOT/share/speech-whisper-romeo.mjs" "$overlay"
+check "voice overlay: Whisper selected" grep -q "defaultProvider: dsh-romeo-whisper" "$overlay"
+check "voice overlay: the microphone button" grep -q "dsh-experimental-client-ui-voice-input" "$overlay"
+check "voice overlay: no local SenseVoice" bash -c "! grep -q sensevoice '$overlay'"
+run --status
+check "voice: remembered, its job listed" has "dsh-whisper-large-v3-turbo"
+run --voice off headless "no voice"
+check "voice off: overlay without voice" bash -c "! grep -q dsh-romeo-whisper '$overlay'"
+run --voice on --stop
+check "voice --stop: the Whisper job too" bash -c "! grep -q whisper '$FAKE_ROMEO_STATE/jobs'"
+run --voice off --status
+if command -v node >/dev/null; then
+  out=$(node "$HERE/speech-whisper.mjs" 2>&1); code=$?
+  printf '%s\n' "$out"
+  check "whisper provider tests" test "$code" = 0
+fi
+
 DSH_ROMEO_FICHE=no-such-fiche run
 check "unknown fiche: clear error" has "fiche 'no-such-fiche' not found"
 

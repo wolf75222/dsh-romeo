@@ -46,6 +46,7 @@ Host romeo
 | `dsh-romeo --stop` | stops the model jobs and closes the tunnel |
 | `dsh-romeo --setup` | copies the models' fiches to ROMEO again |
 | `dsh-romeo --models kimi ...` | the models, before any other option, kept for the next runs (see below) |
+| `dsh-romeo --voice on --launch` | voice input: dsh's microphone button, transcribed by Whisper on ROMEO (see below); kept for the next runs |
 
 `--launch` combines with the others, in any order with `--models`, `--serve`, `--env` and `--desktop`: `dsh-romeo --desktop --launch`, `dsh-romeo --launch --run opencode` (before `--run`, whose arguments are the client's). While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
 
@@ -62,6 +63,10 @@ Host romeo
 `dsh-romeo --models kimi+deepseek --launch` submits both jobs (the DeepSeek one only if none runs) and waits until both models answer. dsh then starts on Kimi, with both models in its model list, and its `subagent` tool sends subagents to DeepSeek: the faster, cheaper model for delegated work, Kimi for the main thread. `subagent_fork` children keep Kimi, since they continue the agent's own conversation. `--status` and `--stop` cover the jobs of both models. With `--run`, Claude Code's small model (`ANTHROPIC_DEFAULT_HAIKU_MODEL`) and opencode's `small_model` go to DeepSeek; `--env` adds `DSH_ROMEO_SUB_MODEL`.
 
 The Kimi weights and its vLLM engine live on project `r260105`'s storage (see [Tuning](tuning.md#kimi-k31-pro)): its fiche works for that project's members.
+
+## Voice input
+
+`dsh-romeo --voice on --launch` adds a third job, Whisper large-v3-turbo on 1 GPU (fiche `dsh-whisper-large-v3-turbo`, French and 98 other languages), and turns on the microphone button of dsh's input box: record, release, and the transcript lands in the box (nothing is sent by itself). dsh's own voice plugin recognizes speech on your computer with SenseVoice, which does not know French; dsh-romeo keeps its button and replaces the recognizer by Whisper on ROMEO ([share/speech-whisper-romeo.mjs](../share/speech-whisper-romeo.mjs), through the same tunnel and key). dsh does not wait for Whisper: the button works once its job is up (a few minutes; the first start downloads 1.6 GB into the Hugging Face cache of your ROMEO home). `--voice off` removes it; `--status` and `--stop` cover its job.
 
 ## Where the agents work
 
@@ -95,6 +100,7 @@ For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 | `ROMEO_PROJECT` | asked | Slurm project code charged for the model jobs |
 | `ROMEO_SSH_HOST` | `romeo` | ssh alias of a ROMEO login node |
 | `DSH_ROMEO_MODELS` | `deepseek` | `deepseek`, `kimi` or `kimi+deepseek` (see [Models](#models)); the last `--models` wins over the config file |
+| `DSH_ROMEO_VOICE` | `off` | `on`: voice input with Whisper on ROMEO (see [Voice input](#voice-input)); the last `--voice` wins over the config file |
 | `DSH_ROMEO_FICHE` | empty | a `romeollmtool` fiche of your own for the agent's model, e.g. `deepseek-v4.1-flash-vllm`, ROMEO's validated one (1 node, 262K context, longer to load) |
 | `DSH_ROMEO_TIME` | `08:00:00` | duration of a model job (24 h at most) |
 | `DSH_ROMEO_EFFORT` | `max` | default reasoning effort: `none`, `low`, `high`, `max` |

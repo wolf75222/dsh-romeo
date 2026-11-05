@@ -16,6 +16,7 @@
 #   dsh-romeo --version | --help
 # --models, --launch and --serve/--env/--desktop go in any order: dsh-romeo --desktop --launch.
 # With kimi+deepseek, --launch N submits N Kimi jobs and one DeepSeek job if none is there.
+#   dsh-romeo --voice on|off ...  voice input in dsh, Whisper on ROMEO (1 GPU), kept for the next runs
 #
 # What it does: keeps the romeollmtool gateway running on the ROMEO login node, launches the
 # model with romeollmtool when asked, opens one SSH connection that carries a tunnel
@@ -39,14 +40,18 @@ ROOT=$(cd "$(dirname "$src")/.." && pwd)
 
 CONFIG_DIR=${DSH_ROMEO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo}
 MODELS_ENV=${DSH_ROMEO_MODELS:-}  # set in the environment: wins over the remembered --models
+VOICE_ENV=${DSH_ROMEO_VOICE:-}
 # shellcheck source=/dev/null
 [ -f "$CONFIG_DIR/config" ] && . "$CONFIG_DIR/config"
 # The last --models, kept until the next one; then the environment, the config file, deepseek.
 MODELS_FILE=$CONFIG_DIR/models
 if [ -z "$MODELS_ENV" ] && [ -s "$MODELS_FILE" ]; then DSH_ROMEO_MODELS=$(cat "$MODELS_FILE"); fi
+VOICE_FILE=$CONFIG_DIR/voice
+if [ -z "$VOICE_ENV" ] && [ -s "$VOICE_FILE" ]; then DSH_ROMEO_VOICE=$(cat "$VOICE_FILE"); fi
 : "${ROMEO_SSH_HOST:=romeo}"                             # ssh alias of a ROMEO login node
 : "${ROMEO_PROJECT:=}"                                   # Slurm project code charged for the model jobs
 : "${DSH_ROMEO_MODELS:=deepseek}"                        # deepseek, kimi, or kimi+deepseek (DeepSeek subagents)
+: "${DSH_ROMEO_VOICE:=off}"                              # on: voice input, Whisper on ROMEO (1 GPU)
 : "${DSH_ROMEO_FICHE:=}"                                 # a fiche of your own for the agent's model
 : "${DSH_ROMEO_TIME:=08:00:00}"                          # model job duration (max 24:00:00)
 : "${DSH_ROMEO_PORT:=11318}"                             # local end of the tunnel
@@ -60,6 +65,7 @@ if [ -z "$MODELS_ENV" ] && [ -s "$MODELS_FILE" ]; then DSH_ROMEO_MODELS=$(cat "$
 HOST=$ROMEO_SSH_HOST
 FICHE_DEEPSEEK=dsh-deepseek-v4.1-flash-1017-1m
 FICHE_KIMI=dsh-kimi-k3.1-pro-1m
+FICHE_VOICE=dsh-whisper-large-v3-turbo
 PORT=$DSH_ROMEO_PORT
 # Control socket of the shared SSH connection (Unix socket paths are limited to ~100 bytes).
 CTL=${DSH_ROMEO_SOCKET:-$HOME/.ssh/dsh-romeo-$HOST.sock}
@@ -71,7 +77,7 @@ say() { printf '%s\n' "${B}dsh-romeo${N} $*" >&2; }
 note() { printf '%s\n' "          ${D}$*${N}" >&2; }
 die() { printf '%s\n' "${R}dsh-romeo:${N} $*" >&2; exit 1; }
 
-usage() { sed -n '2,18p' "$src" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,19p' "$src" | sed 's/^# \{0,1\}//'; }
 
 # FICHE: the agent's model; SUB_FICHE: its subagents' model, empty when they use the same one.
 resolve_models() {
@@ -83,7 +89,12 @@ resolve_models() {
   esac
   # The DeepSeek fiche was the DSH_ROMEO_FICHE default before the choice of models.
   case $DSH_ROMEO_FICHE in '' | "$FICHE_DEEPSEEK") ;; *) FICHE=$DSH_ROMEO_FICHE ;; esac
-  FICHES=$FICHE${SUB_FICHE:+ $SUB_FICHE}
+  case $DSH_ROMEO_VOICE in
+    on) VOICE_FICHE=$FICHE_VOICE ;;
+    off) VOICE_FICHE='' ;;
+    *) die "voice: on or off, not '$DSH_ROMEO_VOICE'" ;;
+  esac
+  FICHES=$FICHE${SUB_FICHE:+ $SUB_FICHE}${VOICE_FICHE:+ $VOICE_FICHE}
 }
 
 # ---------------------------------------------------------------- SSH
@@ -162,8 +173,9 @@ label_of() {  # the model's name in the clients
 
 read_fiches() {
   read_fiche "$FICHE"
-  SUB_MODEL='' SUB_LABEL=''
+  SUB_MODEL='' SUB_LABEL='' VOICE_MODEL=''
   [ -z "$SUB_FICHE" ] || read_fiche "$SUB_FICHE" SUB_
+  [ -z "$VOICE_FICHE" ] || read_fiche "$VOICE_FICHE" VOICE_
 }
 
 jobs_of_fiche() {  # "jobid state elapsed left reason" for each model job of fiche $1
@@ -175,13 +187,14 @@ jobs_of_fiches() {
   for f in $FICHES; do jobs_of_fiche "$f"; done
 }
 
-launch_jobs() {  # $1 jobs of the agent's model, and one of the subagents' if it has none
+launch_jobs() {  # $1 jobs of the agent's model, one of the subagents' and one of Whisper if they have none
   local n=$1
   [ -n "$ROMEO_PROJECT" ] || die "no project code: set ROMEO_PROJECT in $CONFIG_DIR/config (rerun install.sh)"
   # 32 GPUs per Kimi job, 60 per account: a second one would wait forever.
   [ "$LABEL" != Kimi-K3.1-Pro ] || [ "$n" -eq 1 ] || die "Kimi-K3.1-Pro takes 32 GPUs: one job fits in ROMEO's 60-GPU limit"
   for _ in $(seq 1 "$n"); do launch_one "$FICHE"; done
   [ -z "$SUB_FICHE" ] || [ -n "$(jobs_of_fiche "$SUB_FICHE")" ] || launch_one "$SUB_FICHE"
+  [ -z "$VOICE_FICHE" ] || [ -n "$(jobs_of_fiche "$VOICE_FICHE")" ] || launch_one "$VOICE_FICHE"
 }
 
 launch_one() {
@@ -321,6 +334,43 @@ subagent_patch() {
     END { flush() }' <<<"$dump"
 }
 
+# Voice input: dsh's microphone button (its experimental voice bundle, without the local SenseVoice
+# model) with Whisper on ROMEO as the recognizer. A profile that already has the voice bundle only
+# gets the provider and the selection. $1: the dsh profile.
+voice_patch() {
+  local manifest=${DSH_HOME:-$HOME/.dsh}/profiles/$1/package.json
+  printf '# Voice input: Whisper on ROMEO (%s).\n' "$FICHE_VOICE"
+  if grep -q 'dsh-experimental-voice-input-bundle' "$manifest" 2>/dev/null; then
+    cat <<YAML
+- id: speech-to-text
+  config:
+    defaultProvider: dsh-romeo-whisper
+    language: auto
+- insert:
+YAML
+  else
+    cat <<YAML
+- insert:
+    - id: speech-to-text
+      name: '@deepseek-ai/dsh-experimental-speech-to-text'
+      config:
+        defaultProvider: dsh-romeo-whisper
+        language: auto
+    - id: api-speech-to-text
+      name: '@deepseek-ai/dsh-experimental-api-speech-to-text'
+    - id: ui-voice-input
+      name: '@deepseek-ai/dsh-experimental-client-ui-voice-input'
+YAML
+  fi
+  cat <<YAML
+    - id: dsh-romeo-whisper
+      name: $ROOT/share/speech-whisper-romeo.mjs
+      config:
+        baseURL: http://127.0.0.1:$PORT/v1
+        model: $VOICE_MODEL
+YAML
+}
+
 write_overlay() {  # $1: the dsh profile, $2: the dsh that runs it
   mkdir -p "$CONFIG_DIR"
   {
@@ -354,6 +404,7 @@ YAML
     reasoningEffort: $DSH_ROMEO_EFFORT
 YAML
     [ -z "$SUB_MODEL" ] || subagent_patch "${1:-web}" "${2:-}"
+    [ -z "$VOICE_FICHE" ] || voice_patch "${1:-web}"
     if [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
       cat <<YAML
 # Web search through SearXNG (DSH_ROMEO_SEARXNG_URL).
@@ -405,7 +456,7 @@ merge_desktop_patch() {
   awk -v ids="$(sed -n 's/^- id: //p' "$OVERLAY" | tr '\n' ' ') llm-pi-ai agent-default-model tool-subagent" '
     BEGIN { n = split(ids, a, " "); for (i = 1; i <= n; i++) ours[a[i]] = 1 }
     function flush() {
-      if (row != "" && !(id in ours) && row !~ /dsh-romeo-searxng/ && row !~ /agentOptions:\n *provider: romeo\n/)
+      if (row != "" && !(id in ours) && row !~ /dsh-romeo-searxng/ && row !~ /dsh-romeo-whisper/ && row !~ /agentOptions:\n *provider: romeo\n/)
         printf "%s", row
       row = ""; id = ""
     }
@@ -606,11 +657,16 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
   fi
   say "$LABEL ${G}ready${N} ${D}($MODEL, http://127.0.0.1:$PORT/v1)${N}"
   [ -z "$SUB_MODEL" ] || say "$SUB_LABEL ${G}ready${N} for the subagents ${D}($SUB_MODEL)${N}"
+  if [ -n "$VOICE_MODEL" ]; then  # dsh does not wait for it: the microphone works once it is up
+    if probe_models 2>/dev/null | grep -q "\"$VOICE_MODEL\""; then say "voice input ${G}ready${N} ${D}(Whisper on ROMEO)${N}"
+    elif [ -n "$(jobs_of_fiche "$VOICE_FICHE")" ]; then say "voice input ${Y}loading${N} ${D}(Whisper on ROMEO, a few minutes)${N}"
+    else say "voice input ${Y}off${N}: no Whisper job ${D}(dsh-romeo --launch)${N}"; fi
+  fi
 }
 
 main() {
   local launch=0 cmd=''
-  # --models, --launch [N] and --serve, --env, --desktop in any order; then a command and its own
+  # --models, --voice, --launch [N] and --serve, --env, --desktop in any order; then a command and its own
   # arguments (--run CMD ..., a dsh profile ...).
   while [ $# -gt 0 ]; do
     case $1 in
@@ -621,6 +677,13 @@ main() {
         resolve_models
         mkdir -p "$CONFIG_DIR"
         printf '%s\n' "$DSH_ROMEO_MODELS" >"$MODELS_FILE" ;;
+      --voice)
+        [ $# -ge 2 ] || die "--voice takes on or off"
+        DSH_ROMEO_VOICE=$2
+        shift 2
+        resolve_models
+        mkdir -p "$CONFIG_DIR"
+        printf '%s\n' "$DSH_ROMEO_VOICE" >"$VOICE_FILE" ;;
       --launch)
         shift
         launch=1

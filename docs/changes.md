@@ -4,6 +4,7 @@
 
 ## 2026-11-05
 
+- Voice input: `dsh-romeo --voice on --launch` runs Whisper large-v3-turbo on 1 GPU (new fiche `dsh-whisper-large-v3-turbo`) and turns on dsh's microphone button with Whisper as its recognizer ([share/speech-whisper-romeo.mjs](../share/speech-whisper-romeo.mjs)); dsh's own local recognizer, SenseVoice, does not know French. Remembered like `--models`. Tested offline (the provider against a fake Whisper server, the overlay composed with dsh 0.2.2-rc.1); not yet on a GPU, ROMEO's queue being full.
 - `--models`, `--launch` and `--serve`/`--env`/`--desktop` go in any order: `dsh-romeo --models kimi+deepseek --desktop --launch` launched nothing before (`--launch` was only read before the command).
 
 ## 2026-11-04

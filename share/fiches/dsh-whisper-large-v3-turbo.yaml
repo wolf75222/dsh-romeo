@@ -1,0 +1,43 @@
+# ==============================================================================
+# Whisper large-v3-turbo for DeepSeek Harness voice input: vLLM, 1 GPU
+# ==============================================================================
+# romeollmtool fiche installed by dsh-romeo in ~/.romeollmtool/configs.
+# Used with DSH_ROMEO_VOICE=on: dsh's microphone button sends each recording to
+# /v1/audio/transcriptions through the gateway (share/speech-whisper-romeo.mjs).
+#
+# openai/whisper-large-v3-turbo: 809M parameters, the large-v3 encoder with a
+# 4-layer decoder, multilingual (French included), MIT. Much closer to large-v3
+# than to whisper-tiny (ROMEO's catalog fiche) at a few times its speed.
+# Same engine as ROMEO's whisper-tiny-vllm fiche: vllm 0.31.0+audio, the
+# standard 0.31.0 lacks vllm[audio]. No streaming: one recording per request,
+# Whisper reads 30 s windows.
+# The weights (1.6 GB) are downloaded by the job into the Hugging Face cache of
+# your home on the first start.
+# ==============================================================================
+
+id: dsh-whisper-large-v3-turbo
+display_name: "Whisper large-v3-turbo for dsh voice input, 1 GPU"
+verified: experimental
+verified_note: "voice input for DeepSeek Harness (dsh-romeo)"
+engine: vllm
+license: "MIT"
+license_usage: open
+category: [stt]
+
+slurm:
+  time: "24:00:00"
+  gpus: 1
+  cpus: 8
+  memory: "32G"
+  constraint: "armgpu"
+
+vllm:
+  version: "0.31.0+audio"
+  model: "openai/whisper-large-v3-turbo"
+  served_model_name: "dsh-whisper-large-v3-turbo"
+  task: transcription
+  extra_args:
+    - "--revision"
+    - "41f01f3fe87f28c78e2fbf8b568835947dd65ed9"
+    - "--gpu-memory-utilization"
+    - "0.5"
