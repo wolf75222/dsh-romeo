@@ -72,7 +72,7 @@ Host romeo
 
 `dsh-romeo --models kimi+deepseek --launch` submits both jobs (the DeepSeek one only if none runs) and waits until both models answer. dsh then starts on Kimi, with both models in its model list, and its `subagent` tool sends subagents to DeepSeek: the faster, cheaper model for delegated work, Kimi for the main thread. `subagent_fork` children keep Kimi, since they continue the agent's own conversation. DeepSeek also writes the session titles and, when you turn it on, dsh-prompt-predict's suggestions (without reasoning), so this side work never waits for Kimi. With `deepseek` or `kimi` alone, all of it follows the session's model; a model you pick yourself in dsh-prompt-predict's settings wins.
 
-dsh's Auto review (the access mode where a model approves each tool call, in Plugins) always uses the session's model: fast with DeepSeek, slow with Kimi. Its MCP client has no server by default: add one in your own dsh patch, as its README shows. `--status` and `--stop` cover the jobs of both models. With `--run`, Claude Code's small model (`ANTHROPIC_DEFAULT_HAIKU_MODEL`) and opencode's `small_model` go to DeepSeek; `--env` adds `DSH_ROMEO_SUB_MODEL`.
+dsh's MCP client has no server by default: add one in your own dsh patch, as its README shows. `--status` and `--stop` cover the jobs of both models. With `--run`, Claude Code's small model (`ANTHROPIC_DEFAULT_HAIKU_MODEL`) and opencode's `small_model` go to DeepSeek; `--env` adds `DSH_ROMEO_SUB_MODEL`.
 
 The Kimi weights and its vLLM engine live on project `r260105`'s storage (see [Tuning](tuning.md#kimi-k31-pro)): its fiche works for that project's members.
 

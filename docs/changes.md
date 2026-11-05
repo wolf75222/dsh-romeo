@@ -4,7 +4,7 @@
 
 ## 2026-11-05
 
-- With `kimi+deepseek`, DeepSeek also writes the session titles and dsh-prompt-predict's suggestions (when it is on, without reasoning); before, they ran on Kimi or on the plugin's own setting. Auto review has no model setting (it uses the session's), and the MCP client needs servers of your own: both documented.
+- With `kimi+deepseek`, DeepSeek also writes the session titles and dsh-prompt-predict's suggestions (when it is on, without reasoning); before, they ran on Kimi or on the plugin's own setting. The MCP client needs servers of your own: documented.
 - Voice input with a Whisper job that starts after dsh: a background watcher opens the tunnel once the job runs, and the plugin reads the job's key from a file at each recording, so the microphone works without restarting dsh.
 - `install.sh` keeps the optional plugins working on a newer dsh: an installed version outside its declared dsh range moves to the latest version (keeping its on/off state), and a refused pinned version falls back to the latest.
 - Test suite: passes in full on a ROMEO login node too (the skill's env.sh can be told it runs remote, and the fast gateway test no longer finds ROMEO's real romeollmtool Python).
