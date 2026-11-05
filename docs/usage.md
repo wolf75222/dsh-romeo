@@ -54,6 +54,8 @@ Host romeo
 | `eval "$(dsh-romeo --env)"` | the endpoint and the key as variables of this shell |
 | `dsh-romeo --status` | the gateway, the tunnel, and a table of the model jobs: state, nodes, time left, or Slurm's estimated start while queued |
 | `dsh-romeo --stop` | cancels every dsh-romeo model job (also of an earlier `--models`) and closes the tunnel |
+| `dsh-romeo --doctor` | checks this computer (Node.js, dsh, the tunnel's port), SSH, romeollmtool, the project, the fiches on ROMEO, the key and the gateway; changes nothing, exits 1 if a check fails |
+| `dsh-romeo --completion bash\|zsh` | shell completion of the options, models and dsh profiles: `eval "$(dsh-romeo --completion zsh)"` in `~/.zshrc` (`bash`: `~/.bashrc`) |
 | `dsh-romeo --logs [-f]` | the last 40 lines of the agent's model job log (`-f` follows it) |
 | `dsh-romeo --version`, `--help` | `-V`, `-h`: the versions of dsh-romeo, dsh, the app's dsh and Node.js |
 | `dsh-romeo --setup` | copies the models' fiches to ROMEO again |

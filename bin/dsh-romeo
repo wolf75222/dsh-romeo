@@ -19,6 +19,8 @@
 #   dsh-romeo --stop              cancel every dsh-romeo model job (any --models), close the tunnel
 #   dsh-romeo --setup             copy the model fiches to ROMEO again (after an update)
 #   dsh-romeo --logs [-f]         the log of the agent's model job (-f: follow it, Ctrl-C to quit)
+#   dsh-romeo --doctor            check this computer, SSH, ROMEO, the fiches and the key; changes nothing
+#   dsh-romeo --completion bash|zsh   shell completion: eval "$(dsh-romeo --completion zsh)"
 #
 # Options, remembered for the next runs
 #   --models M                    deepseek (default), kimi, or kimi+deepseek (DeepSeek subagents)
@@ -720,6 +722,78 @@ cmd_logs() {  # $1: -f to follow. The agent's model job, else any dsh-romeo job 
   rlt logs -n 40 "$id"
 }
 
+cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on ROMEO.
+  local failed=0 v dsh_v f
+  pass() { status_row "$1" ok "$G" "$2"; }
+  warn() { status_row "$1" warning "$Y" "$2"; }
+  fail() { status_row "$1" failed "$R" "$2"; failed=1; }
+  say "doctor ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE${N}"
+  # This computer
+  if command -v node >/dev/null; then
+    v=$(node --version)
+    if node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 20 || (a == 20 && b >= 3) ? 0 : 1)'; then
+      pass node "$v"
+    else fail node "$v is too old: Node.js 20.3 or later"; fi
+  else fail node "not installed: https://nodejs.org"; fi
+  if command -v "$DSH" >/dev/null; then
+    dsh_v=$("$DSH" --version 2>/dev/null </dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | tail -1)
+    case $dsh_v in
+      0.2.[2-9]* | 0.[3-9].* | [1-9].*)
+        if node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 24 || (a == 24 && b >= 9) ? 0 : 1)' 2>/dev/null; then
+          pass dsh "$dsh_v"
+        else fail dsh "$dsh_v needs Node.js 24.9 or later (node $(node --version 2>/dev/null))"; fi ;;
+      '') warn dsh "installed, version unreadable" ;;
+      *) pass dsh "$dsh_v" ;;
+    esac
+  else fail dsh "not installed: $ROOT/install.sh"; fi
+  # The local end of the tunnel: free, or held by dsh-romeo's own SSH connection.
+  if [ -s "$CTL.target" ] && mux check; then pass port "127.0.0.1:$PORT, dsh-romeo's tunnel"
+  elif command -v lsof >/dev/null && v=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -Fc 2>/dev/null | sed -n 's/^c//p' | head -1) && [ -n "$v" ] && [ "$v" != ssh ]; then
+    fail port "127.0.0.1:$PORT is held by $v: set DSH_ROMEO_PORT"
+  else pass port "127.0.0.1:$PORT"; fi
+  # ROMEO
+  if ( connect ) 2>/dev/null; then pass ssh "$HOST"
+  else
+    fail ssh "cannot log in to '$HOST' without a password (README: Install): ssh $HOST"
+    [ "$failed" = 0 ] || die "doctor: a check failed"
+  fi
+  if v=$(rlt version 2>/dev/null </dev/null | head -1) && [ -n "$v" ]; then pass tool "romeollmtool ${v#romeollmtool }"
+  else fail tool "romeollmtool not found at $ROMEOLLMTOOL on ROMEO (set ROMEOLLMTOOL)"; fi
+  if [ -n "$ROMEO_PROJECT" ]; then pass project "$ROMEO_PROJECT"; else fail project "none: $ROOT/install.sh --project rXXXXXX"; fi
+  for f in $FICHES; do
+    if rlt catalog show "$f" >/dev/null 2>&1 </dev/null; then pass fiche "$f"
+    else fail fiche "$f is not on ROMEO: dsh-romeo --setup"; fi
+  done
+  if [ -n "$(rlt gateway show-key 2>/dev/null </dev/null | tr -d '[:space:]')" ]; then pass key "readable (romeollmtool gateway show-key)"
+  else fail key "cannot read the gateway key"; fi
+  if [ -n "$(gateway_url)" ]; then pass gateway running; else warn gateway "stopped: the next dsh-romeo starts it"; fi
+  [ "$failed" = 0 ] || die "doctor: a check failed"
+  say "doctor: ${G}all good${N}"
+}
+
+cmd_completion() {  # $1: bash or zsh. Options, then the values of --models, --voice and --completion.
+  local words="--models --voice --launch --desktop --run --serve --env --status --stop --setup --logs --doctor --completion --version --help"
+  case ${1:-} in
+    bash | zsh) ;;
+    *) die "--completion takes bash or zsh" 'eval "$(dsh-romeo --completion zsh)"   # in ~/.zshrc' ;;
+  esac
+  [ "$1" = bash ] || printf '%s\n' '(( $+functions[compdef] )) || { autoload -U +X compinit && compinit; }' 'autoload -U +X bashcompinit && bashcompinit'
+  cat <<EOF
+_dsh_romeo() {
+  local cur=\${COMP_WORDS[COMP_CWORD]} prev=\${COMP_WORDS[COMP_CWORD-1]}
+  case \$prev in
+    --models) COMPREPLY=(\$(compgen -W "deepseek kimi kimi+deepseek" -- "\$cur")); return ;;
+    --voice) COMPREPLY=(\$(compgen -W "on off" -- "\$cur")); return ;;
+    --completion) COMPREPLY=(\$(compgen -W "bash zsh" -- "\$cur")); return ;;
+    --logs) COMPREPLY=(\$(compgen -W "-f" -- "\$cur")); return ;;
+    --run) COMPREPLY=(\$(compgen -c -- "\$cur")); return ;;
+  esac
+  COMPREPLY=(\$(compgen -W "$words \$(ls "\${DSH_HOME:-\$HOME/.dsh}/profiles" 2>/dev/null)" -- "\$cur"))
+}
+complete -F _dsh_romeo dsh-romeo
+EOF
+}
+
 cmd_version() {
   local commit app_dsh
   commit=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)
@@ -923,6 +997,11 @@ main() {
   case "${1:-}" in
     -h|--help) usage; exit 0 ;;
     -V|--version) cmd_version; exit 0 ;;
+    --completion) cmd_completion "${2:-}"; exit 0 ;;
+    --doctor)
+      [ "$launch" -eq 0 ] || die "--launch and --doctor do not combine" "dsh-romeo --doctor"
+      cmd_doctor
+      exit 0 ;;
     --logs)
       [ "$launch" -eq 0 ] || die "--launch and --logs do not combine" "dsh-romeo --logs"
       cmd_logs "${2:-}"

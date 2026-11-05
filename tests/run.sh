@@ -38,6 +38,10 @@ run() { out=$("$ROOT/bin/dsh-romeo" "$@" 2>&1); code=$?; }
 
 echo "dsh-romeo offline tests"
 
+run --completion bash
+check "--completion bash: completes the models" bash -c "eval \"\$1\"; COMP_WORDS=(dsh-romeo --models k); COMP_CWORD=2; _dsh_romeo; [ \"\${COMPREPLY[*]}\" = 'kimi kimi+deepseek' ]" _ "$out"
+run --completion fish
+check "--completion fish: refused" has "takes bash or zsh"
 run --version
 check "--version" has "dsh-romeo 0."
 
@@ -174,6 +178,14 @@ if [ "$(uname)" = Darwin ]; then
   check "--desktop without the app: says so" has "app is not installed"
 fi
 
+run --doctor
+check "--doctor: all good" has "doctor: all good"
+check "--doctor: the fiche checked" has "fiche .*ok .*dsh-deepseek-v4.1-flash-1017-1m"
+check "--doctor: exit 0" test "$code" = 0
+ROMEO_PROJECT= run --doctor
+check "--doctor without a project: fails and says so" bash -c "[ $code != 0 ] && grep -q 'project .*failed' <<<\"\$1\"" _ "$out"
+FAKE_ROMEO_UNREACHABLE=1 DSH_ROMEO_SOCKET=$T/other.sock run --doctor
+check "--doctor, ROMEO unreachable: ssh failed" has "ssh .*failed"
 run --logs
 check "--logs: the agent's job" has "log of model job 900001"
 check "--logs: its lines" has "log line of job 900001"

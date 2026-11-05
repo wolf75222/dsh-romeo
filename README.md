@@ -26,8 +26,9 @@ Then run `dsh-romeo --launch` (in a new terminal if `install.sh` said `~/.local/
 | `dsh-romeo headless "a task"` | one task, the answer on stdout: for scripts |
 | `dsh-romeo --run opencode` | any other client: `codex`, `claude`, `aider`, `python3 my_agent.py`... |
 | `dsh-romeo --serve` | only the model and the tunnel, for an editor or any OpenAI-compatible tool |
-| `dsh-romeo --status` | the gateway, the model jobs, the tunnel |
-| `dsh-romeo --stop` | stops the model job: it uses your project's GPU hours while it runs |
+| `dsh-romeo --status` | the gateway, the tunnel, and the model jobs with their queue start time |
+| `dsh-romeo --stop` | stops the model jobs: they use your project's GPU hours while they run |
+| `dsh-romeo --doctor` | checks Node.js, dsh, SSH, romeollmtool, the project, the fiches and the key; when something does not work |
 | `dsh-romeo --models kimi --launch` | Kimi-K3.1-Pro instead (8 nodes, 32 GH200; for now project r260105 only); `--models kimi+deepseek`: Kimi for the agent, DeepSeek for its subagents |
 | `dsh-romeo --voice on --launch` | voice input in dsh, transcribed by Whisper on ROMEO (1 GPU, French included) |
 

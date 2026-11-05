@@ -234,5 +234,7 @@ ${G}dsh-romeo is installed.${N} Start the model and open dsh:
 Other models: dsh-romeo --models kimi+deepseek --launch (Kimi-K3.1-Pro, 8 nodes, with DeepSeek for its
 subagents; project r260105), voice input: --voice on (docs/usage.md).
 
+Something wrong? dsh-romeo --doctor. Shell completion: add eval "\$(dsh-romeo --completion zsh)" to ~/.zshrc.
+
 Other clients: dsh-romeo --run opencode | codex | claude | aider | python3 ...  (docs/clients.md)
 EOF
