@@ -34,6 +34,8 @@
 #   at start (host pages on the HBM);
 # - Marlin MoE: Hopper has no FP4, Marlin dequantizes the MXFP4 experts.
 # The attention backend is left to vLLM: the DSA layers need the sparse MLA one.
+# Images: the vision encoder (MoonViT-V2, 401M parameters) is served, no
+# --language-model-only, so Kimi reads the screenshots pasted in dsh.
 # Plus what dsh-romeo kept for DeepSeek: 1M context, 256K output, 32 CPUs per
 # node, --stream-interval 4, Moonshot's sampling (temperature 1.0, top_p 0.95),
 # maximum reasoning by default.
@@ -109,7 +111,6 @@ vllm:
   extra_args:
     - "--trust-remote-code"
     - "--disable-custom-all-reduce"
-    - "--language-model-only"
     - "--load-format"
     - "fastsafetensors"
     - "--dtype"
