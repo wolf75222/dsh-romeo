@@ -12,7 +12,7 @@ The gateway forwards every `/v1/...` request to vLLM, which speaks three APIs: O
 | [Aider](https://aider.chat) | `dsh-romeo --run aider` | `OPENAI_API_BASE`, `OPENAI_API_KEY` and `AIDER_MODEL=openai/<model>` |
 | OpenAI and Anthropic SDKs, curl, scripts | `dsh-romeo --run python3 my_agent.py` | `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `ANTHROPIC_BASE_URL`, `DSH_ROMEO_MODEL` |
 
-Arguments after the command are the client's own: `dsh-romeo --run codex exec "fix the tests"`, `dsh-romeo --run claude -p "..."`. None of these clients' own settings are modified, and the key is never written to disk.
+Arguments after the command are the client's own: `dsh-romeo --run codex exec "fix the tests"`, `dsh-romeo --run claude -p "..."`. None of these clients' own settings are modified, and the gateway's key is never written to disk (with voice on, only the Whisper job's own key is, in `~/.config/dsh-romeo/whisper.key`, readable by you only).
 
 ## Editors and other tools
 

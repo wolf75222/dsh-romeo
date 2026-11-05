@@ -8,13 +8,13 @@ The model is DeepSeek's 17 October 2026 release of V4.1-Flash, with its full 1M-
 
 ## Install
 
-On your computer (macOS or Linux), once `ssh romeo` logs you into ROMEO without a password:
+On your computer (macOS or Linux), with Node.js 20 or later (24.9+ gets dsh 0.2.2) and once `ssh romeo` logs you into ROMEO without a password (the `~/.ssh/config` entry is in [Usage](docs/usage.md#install)):
 
 ```bash
 git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/install.sh
 ```
 
-Then run `dsh-romeo --launch`. To update: `cd ~/dsh-romeo && git pull && ./install.sh`.
+Then run `dsh-romeo --launch` (in a new terminal if `install.sh` said `~/.local/bin` is not on your `PATH`). To update: `cd ~/dsh-romeo && git pull && ./install.sh`.
 
 ## Use
 
@@ -28,7 +28,8 @@ Then run `dsh-romeo --launch`. To update: `cd ~/dsh-romeo && git pull && ./insta
 | `dsh-romeo --serve` | only the model and the tunnel, for an editor or any OpenAI-compatible tool |
 | `dsh-romeo --status` | the gateway, the model jobs, the tunnel |
 | `dsh-romeo --stop` | stops the model job: it uses your project's GPU hours while it runs |
-| `dsh-romeo --models kimi --launch` | Kimi-K3.1-Pro instead (8 nodes, 32 GH200); `--models kimi+deepseek`: Kimi for the agent, DeepSeek for its subagents |
+| `dsh-romeo --models kimi --launch` | Kimi-K3.1-Pro instead (8 nodes, 32 GH200; for now project r260105 only); `--models kimi+deepseek`: Kimi for the agent, DeepSeek for its subagents |
+| `dsh-romeo --voice on --launch` | voice input in dsh, transcribed by Whisper on ROMEO (1 GPU, French included) |
 
 ## Docs
 

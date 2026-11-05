@@ -3,7 +3,8 @@
 # ==============================================================================
 # romeollmtool fiche installed by dsh-romeo in ~/.romeollmtool/configs.
 # Used with DSH_ROMEO_VOICE=on: dsh's microphone button sends each recording to
-# /v1/audio/transcriptions through the gateway (share/speech-whisper-romeo.mjs).
+# /v1/audio/transcriptions of this job, straight through a second SSH forward
+# (share/speech-whisper-romeo.mjs): romeollmtool's gateway cannot relay uploads.
 #
 # openai/whisper-large-v3-turbo: 809M parameters, the large-v3 encoder with a
 # 4-layer decoder, multilingual (French included), MIT. Much closer to large-v3

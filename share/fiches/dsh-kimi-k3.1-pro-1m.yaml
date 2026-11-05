@@ -2,7 +2,7 @@
 # Kimi-K3.1-Pro for DeepSeek Harness: vLLM, 8 nodes (32 GH200), 1M context
 # ==============================================================================
 # romeollmtool fiche installed by dsh-romeo in ~/.romeollmtool/configs.
-# Use it with DSH_ROMEO_FICHE=dsh-kimi-k3.1-pro-1m.
+# Use it with dsh-romeo --models kimi (or kimi+deepseek).
 #
 # Kimi-K3.1-Pro (moonshotai/Kimi-K3.1-Pro, rev. 6d0a0202, 2 November 2026):
 # Kimi K3 post-trained, with Gated DeepSeek Sparse Attention (DSA, top-2048
@@ -17,7 +17,8 @@
 # armgpu node by engines/build-vllm-k31.sbatch.
 #
 # Weights and engine are on project r260105's storage. Other projects: stage
-# them with the same scripts and change the two paths.
+# them with the same scripts and change every /project/r260105/rmdraux path below
+# (weights, engine, caches, TMPDIR).
 #
 # Starting point: the retained Kimi K3 fiche (October 2026, vLLM 0.32.0), whose
 # settings carry over since only the attention of 24 layers changed:

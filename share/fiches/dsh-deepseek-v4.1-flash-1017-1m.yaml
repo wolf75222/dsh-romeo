@@ -17,7 +17,7 @@
 # - DSpark speculative decoding, 2 draft tokens (the 1017 weights accept a bit
 #   less than September's: k=2 beats k=3 by 3-9 %, k=4 loses up to 21 %);
 # - 32 CPUs per node and --stream-interval 4 for many agents at once.
-# Measured on ROMEO with the September weights (October 2026): about 500 agents
+# Measured on ROMEO with the September weights (October 2026): about 530 agents
 # at once at 30 tokens/s each on 7 replicas (one job = one replica).
 #
 # gpu-memory-utilization 0.82 (77.9 GiB): on GH200 only 77-80 GiB are sometimes

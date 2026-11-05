@@ -140,6 +140,16 @@ if [ "$(uname)" = Darwin ]; then
   HOME=$T/home run --desktop
   check "--desktop again: a setting the app saved is kept" grep -q "^- id: ui-theme" "$T/home/.dsh/profiles/desktop/cordis.patch.yml"
   check "--desktop again: dsh-romeo's rows once" test "$(grep -c '^- id: llm-pi-ai' "$T/home/.dsh/profiles/desktop/cordis.patch.yml")" = 1
+  # The app's own row under an id dsh-romeo also uses stays; voice reads the desktop profile's bundles.
+  DP=$T/home/.dsh/profiles/desktop
+  printf '%s\n' '- id: tool-subagent' '  disabled: false' >>"$DP/cordis.patch.yml"
+  echo '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-experimental-voice-input-bundle"]}}}' >"$DP/package.json"
+  touch "$FAKE_ROMEO_STATE/app-running"
+  DSH_ROMEO_VOICE_PORT=$PORT HOME=$T/home run --voice on --launch --desktop
+  check "--desktop: the app's own tool-subagent row kept" bash -c "grep -A1 '^- id: tool-subagent\$' '$DP/cordis.patch.yml' | grep -q 'disabled: false'"
+  check "--desktop voice: the app's voice bundle configured, not inserted again" bash -c "grep -q '^- id: speech-to-text' '$DP/cordis.patch.yml' && ! grep -q 'dsh-experimental-client-ui-voice-input' '$DP/cordis.patch.yml'"
+  rm -f "$DP/package.json"
+  run --voice off --status
   # Kimi with DeepSeek subagents in the app: the presets come from the app's own dsh.
   printf '%s\n' '#!/usr/bin/env bash' 'sed s/preset-standard/preset-of-the-app/ "$(dirname "$0")/dump-web.yml"' >"$T/app-dsh"
   cp "$HERE/fake-romeo/dump-web.yml" "$T/dump-web.yml"
@@ -151,7 +161,8 @@ if [ "$(uname)" = Darwin ]; then
   touch "$FAKE_ROMEO_STATE/app-running"
   DSH_ROMEO_DESKTOP_DSH=$T/app-dsh HOME=$T/home run --models deepseek --desktop
   check "--desktop back to deepseek: no subagent preset left" bash -c "! grep -q 'preset-of-the-app' '$T/home/.dsh/profiles/desktop/cordis.patch.yml'"
-  run --models kimi --stop
+  # The Kimi job ends (scancel), the DeepSeek job stays for the tests below.
+  grep -v kimi "$FAKE_ROMEO_STATE/jobs" >"$FAKE_ROMEO_STATE/jobs.new"; mv "$FAKE_ROMEO_STATE/jobs.new" "$FAKE_ROMEO_STATE/jobs"
   run --models deepseek --status
   FAKE_NO_APP=1 HOME=$T/home run --desktop
   check "--desktop without the app: says so" has "app is not installed"
@@ -185,6 +196,12 @@ check "kimi overlay: no subagent model" bash -c "! grep -q agentOptions '$overla
 run --models kimi --stop
 run --models kimi --launch 2
 check "kimi: one job only (32 GPUs)" has "one job fits in ROMEO's 60-GPU limit"
+run --models kimi --launch
+run --models kimi --launch
+check "kimi: a second --launch queues no second job" test "$(grep -c ' dsh-kimi-k3.1-pro-1m ' "$FAKE_ROMEO_STATE/jobs")" = 1
+check "kimi: and says one is already there" has "already queued or running"
+DSH_ROMEO_MODELS=deepseek run --stop
+check "--stop after switching models: the Kimi job too" bash -c "test -f '$FAKE_ROMEO_STATE/jobs' && ! grep -q kimi '$FAKE_ROMEO_STATE/jobs'"
 run --models gpt
 check "unknown models: clear error" has "models: deepseek, kimi or kimi+deepseek"
 run --status
@@ -314,6 +331,11 @@ DSH_HOME=$P5 FAKE_PINNED_RANGE='dsh-sidenote=>=0.2.2-rc.1 <0.2.3-0' "$ROOT/share
 out=$(DSH_HOME=$P5 FAKE_DSH_VERSION=0.2.3 "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
 check "plugins, dsh 0.2.3: an off plugin stays off after the move" has "dsh-sidenote: 0.8.3 does not fit dsh 0.2.3, moved to 9.9.9 (off;"
 check "plugins, dsh 0.2.3: and is still out of the selection" node -e 'process.exit(require(process.argv[1]).dsh.profile.bundles.includes("dsh-sidenote") ? 1 : 0)' "$P5/profiles/web/package.json"
+P6=$T/plugins-home6
+DSH_HOME=$P6 FAKE_PINNED_RANGE='dsh-sidenote=>=0.2.2-rc.1 <0.2.3-0' "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" >/dev/null 2>&1
+out=$(DSH_HOME=$P6 FAKE_DSH_VERSION=0.2.3 FAKE_LATEST_RANGE='<0.2.3-0' "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
+check "plugins: no version fits the new dsh, reported" has "dsh-sidenote: 0.8.3 does not fit dsh 0.2.3, nor does its latest version 9.9.9 (installed, off)"
+check "plugins: and it stays off" node -e 'process.exit(require(process.argv[1]).dsh.profile.bundles.includes("dsh-sidenote") ? 1 : 0)' "$P6/profiles/web/package.json"
 
 # The romeo skill: frontmatter dsh accepts, links that resolve, and its env.sh against the fake ROMEO.
 SKILL=$ROOT/share/skills/romeo

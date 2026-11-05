@@ -17,7 +17,7 @@ if [ "${1:-}" = plugin ] && [ "${4:-}" = add ]; then
   [ "$name" = "${FAKE_DSH_REFUSE_PINNED:-}" ] && [ "$version" != latest ] && { echo "ERR_DSH_INCOMPATIBLE: $spec requires another dsh" >&2; exit 1; }
   range=''
   [ "${FAKE_PINNED_RANGE%%=*}" = "$name" ] && range=${FAKE_PINNED_RANGE#*=}
-  [ "$version" = latest ] && version=9.9.9 range='>=0.0.0'
+  [ "$version" = latest ] && version=9.9.9 range=${FAKE_LATEST_RANGE:->=0.0.0}
   mkdir -p "$dir/node_modules/$name"
   [ -f "$dir/package.json" ] || echo '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"]}}}' >"$dir/package.json"
   node -e '

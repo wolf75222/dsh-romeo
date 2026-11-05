@@ -8,7 +8,7 @@ What an A/B study on ROMEO (October 2026, up to 7 jobs and 3584 concurrent reque
 |---|---|---|
 | Tensor parallelism over 8 GH200 on 2 nodes, no pipeline parallelism | without patches that `romeollmtool` cannot load, the pipeline variants of V4.1 on vLLM 0.31 garble long agent contexts (12 to 18 sessions out of 24) | fiche |
 | DSpark speculative decoding, 2 draft tokens with the 1017 weights (3 with September's); 32 CPUs per node; `--stream-interval 4` | +61 % per agent at 16 agents per job and +70 % at 64, against 5 draft tokens and 8 CPUs; on 1017, k=2 beats k=3 by 3 to 9 % and k=4 loses up to 21 % | fiche |
-| Full 1M context, 256K output, `--gpu-memory-utilization 0.82`, `--language-model-only` | the context the model was trained for; 6.5M tokens of KV cache (4.7M at 0.78) and still starts on GH200s with only 77-80 GiB free | fiche |
+| Full 1M context, 256K output, `--gpu-memory-utilization 0.82`, images on (the vision encoder served) | the context the model was trained for; 6.34M tokens of KV cache with vision (4.7M at 0.78) and still starts on GH200s with only 77-80 GiB free | fiche |
 | DeepSeek's sampling (temperature 1.0, top_p 0.95), maximum reasoning by default | `DSH_ROMEO_EFFORT` to change it | fiche, launcher |
 | Several jobs behind one gateway | `dsh-romeo --launch N` | launcher |
 | Fast gateway: no 100-stream cap, session affinity across jobs, longer timeouts, 4 processes | 3584 of 3584 concurrent requests served (the standard gateway: 502 errors beyond about 100 streams); -20 to -28 % wall time and -59 % time to first token late in multi-turn sessions with several jobs | `DSH_ROMEO_GATEWAY=fast` |
@@ -21,7 +21,7 @@ The fiche is [share/fiches/dsh-deepseek-v4.1-flash-1017-1m.yaml](../share/fiches
 
 ## Kimi-K3.1-Pro
 
-`DSH_ROMEO_FICHE=dsh-kimi-k3.1-pro-1m` serves Kimi-K3.1-Pro instead (experimental): 1.56 TB of MXFP4 weights on 8 nodes (32 GH200, one replica within the 60-GPU account limit), 1M context, 21.1M tokens of KV cache. No vLLM release has K3.1 yet ([vllm-project/vllm#65685](https://github.com/vllm-project/vllm/pull/65685)): the fiche points to a personal engine (`engine_dir:`) and to weights on project `r260105`; other projects stage their own and change both paths.
+`dsh-romeo --models kimi` (or `kimi+deepseek`) serves Kimi-K3.1-Pro instead (experimental): 1.56 TB of MXFP4 weights on 8 nodes (32 GH200, one replica within the 60-GPU account limit), 1M context, 21.1M tokens of KV cache. No vLLM release has K3.1 yet ([vllm-project/vllm#65685](https://github.com/vllm-project/vllm/pull/65685)): the fiche points to a personal engine (`engine_dir:`) and to weights on project `r260105`; other projects stage their own and change the fiche's `/project/r260105/rmdraux` paths (weights, engine, caches, `TMPDIR`).
 
 It starts from the Kimi K3 measurements (October 2026): TP8 x PP4, DCP8, `--no-async-scheduling`, fastsafetensors, Marlin for the MXFP4 experts, `--gpu-memory-utilization 0.78`. An A/B on ROMEO (2026-11-04) added breakable CUDA graphs: K3.1 has no compiled submodule, so without them every mixed step runs eager (+4 to +11 % per agent).
 

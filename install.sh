@@ -20,9 +20,10 @@ RLT_DEFAULT=/apps/romeotools/romeollmtool/romeollmtool
 
 while [ $# -gt 0 ]; do
   case $1 in
-    --project) PROJECT=$2; shift 2 ;;
-    --host) HOST=$2; shift 2 ;;
-    --bin-dir) BIN_DIR=$2; shift 2 ;;
+    --project | --host | --bin-dir)
+      [ $# -ge 2 ] || { echo "$1 needs a value (see --help)" >&2; exit 2; }
+      case $1 in --project) PROJECT=$2 ;; --host) HOST=$2 ;; --bin-dir) BIN_DIR=$2 ;; esac
+      shift 2 ;;
     --search) SEARCH=1; shift ;;
     --no-plugins) PLUGINS=0; shift ;;
     --yes|-y) YES=1; shift ;;
@@ -188,8 +189,14 @@ if [ "$PLUGINS" = 1 ]; then
   step "Optional dsh plugins (off; turn them on in dsh's Plugins page)"
   "$ROOT/share/optional-plugins.sh" web dsh | sed 's/^/    web: /' \
     || printf '%s\n' "    ${R}warning:${N} some plugins were not installed in the web profile"
-  APP_DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
-  if [ -x "$APP_DSH" ]; then
+  APP_DSH=''
+  for app in "/Applications/DeepSeek Harness.app" "$HOME/Applications/DeepSeek Harness.app"; do
+    [ -x "$app/Contents/Resources/runtime/cli/bin/dsh" ] && { APP_DSH="$app/Contents/Resources/runtime/cli/bin/dsh"; break; }
+  done
+  if [ -n "$APP_DSH" ] && pgrep -qf "/DeepSeek Harness.app/Contents/MacOS/" 2>/dev/null; then
+    # The app rewrites its profile while it runs: leave it alone rather than race with it.
+    printf '%s\n' "    desktop app: running, its profile is left as it is (quit it and run install.sh again)"
+  elif [ -n "$APP_DSH" ]; then
     "$ROOT/share/optional-plugins.sh" desktop "$APP_DSH" | sed 's/^/    desktop app: /' \
       || printf '%s\n' "    ${R}warning:${N} some plugins were not installed in the desktop app's profile"
   fi
@@ -218,9 +225,12 @@ cat <<EOF
 
 ${G}dsh-romeo is installed.${N} Start the model and open dsh:
 
-    dsh-romeo --launch        # one model job (2 nodes, 8 GPUs), about 10 min to load, then the Web UI
+    dsh-romeo --launch        # DeepSeek: one job (2 nodes, 8 GPUs), about 10 min to load, then the Web UI
     dsh-romeo                 # later, while the job runs
-    dsh-romeo --stop          # when you are done: the job uses GPU hours of $PROJECT
+    dsh-romeo --stop          # when you are done: the jobs use GPU hours of $PROJECT
+
+Other models: dsh-romeo --models kimi+deepseek --launch (Kimi-K3.1-Pro, 8 nodes, with DeepSeek for its
+subagents; project r260105), voice input: --voice on (docs/usage.md).
 
 Other clients: dsh-romeo --run opencode | codex | claude | aider | python3 ...  (docs/clients.md)
 EOF

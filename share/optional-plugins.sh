@@ -14,12 +14,13 @@ DIR=${DSH_HOME:-$HOME/.dsh}/profiles/$PROFILE
 MANIFEST=$DIR/package.json
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/dsh-romeo-plugins.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
-DSH_VERSION=$("$CLI" --version 2>/dev/null | tail -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[-.A-Za-z0-9]*' | head -1)
+DSH_VERSION=$("$CLI" --version </dev/null 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]*[0-9A-Za-z])?' | tail -1)
 # npm's own semver, next to the real npm-cli.js (npm's prefix is not always the global modules').
 SEMVER=${DSH_ROMEO_SEMVER:-$(node -e '
   const fs = require("fs"), path = require("path"), npm = fs.realpathSync(process.argv[1])
   console.log(path.dirname(require.resolve("semver", { paths: [path.join(path.dirname(npm), "..")] })))
 ' "$(command -v npm)" 2>/dev/null)}
+[ -n "$SEMVER" ] && [ -d "$SEMVER" ] || echo "(npm's semver not found: installed plugins are not checked against dsh $DSH_VERSION)"
 
 installed() {  # $1: package name, a dependency of the profile
   [ -f "$MANIFEST" ] && node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).dependencies?.[process.argv[2]] ? 0 : 1)' "$MANIFEST" "$1"
@@ -33,9 +34,10 @@ turn_off() {  # $1: package name, taken out of dsh.profile.bundles
   node -e '
     const fs = require("fs"), [file, name] = process.argv.slice(1)
     const data = JSON.parse(fs.readFileSync(file, "utf8")), profile = data.dsh?.profile
-    if (profile?.bundles) {
+    if (profile?.bundles) {  // written whole, then renamed: a running dsh never reads half a file
       profile.bundles = profile.bundles.filter((b) => b !== name)
-      fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n")
+      fs.writeFileSync(file + ".tmp", JSON.stringify(data, null, 2) + "\n")
+      fs.renameSync(file + ".tmp", file)
     }' "$MANIFEST" "$1"
 }
 
@@ -48,12 +50,13 @@ fits() {
     let pkg
     try { pkg = JSON.parse(fs.readFileSync(process.argv[2], "utf8")) } catch { process.exit(0) }
     const range = pkg.dsh?.engines?.dsh ?? pkg.engines?.dsh
-    process.exit(!range || semver.satisfies(process.argv[3], range, { includePrerelease: true }) ? 0 : 1)
+    if (!range || !semver.valid(process.argv[3]) || !semver.validRange(range)) process.exit(0)
+    process.exit(semver.satisfies(process.argv[3], range, { includePrerelease: true }) ? 0 : 1)
   ' "$SEMVER" "$DIR/node_modules/$1/package.json" "$DSH_VERSION"
 }
 
 add() {  # $1: spec; 0 when it is now a dependency of the profile
-  (cd "$WORK" && "$CLI" plugin --profile "$PROFILE" add "$1") >"$WORK/log" 2>&1 && installed "${1%@*}"
+  (cd "$WORK" && "$CLI" plugin --profile "$PROFILE" add "$1" </dev/null) >"$WORK/log" 2>&1 && installed "${1%@*}"
 }
 
 version_of() { node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version' "$DIR/node_modules/$1/package.json" 2>/dev/null; }
@@ -70,11 +73,16 @@ while read -r spec what; do
     was_on=0
     selected "$name" && was_on=1
     old=$(version_of "$name")
-    if add "$name@latest" && fits "$name"; then
-      [ "$was_on" = 1 ] || turn_off "$name"
-      echo "$name: $old does not fit dsh $DSH_VERSION, moved to $(version_of "$name") ($([ "$was_on" = 1 ] && echo on || echo off); newer than the version reviewed for dsh-romeo)"
+    if add "$name@latest"; then
+      [ "$was_on" = 1 ] || turn_off "$name"   # dsh plugin add selects it: back off as it was
+      if fits "$name"; then
+        echo "$name: $old does not fit dsh $DSH_VERSION, moved to $(version_of "$name") ($([ "$was_on" = 1 ] && echo on || echo off); newer than the version reviewed for dsh-romeo)"
+      else
+        echo "$name: $old does not fit dsh $DSH_VERSION, nor does its latest version $(version_of "$name") (installed, $([ "$was_on" = 1 ] && echo on || echo off))"
+        status=1
+      fi
     else
-      echo "$name: $old does not fit dsh $DSH_VERSION and no newer version does yet"
+      echo "$name: $old does not fit dsh $DSH_VERSION and its latest version could not be installed"
       status=1
     fi
   elif add "$spec"; then

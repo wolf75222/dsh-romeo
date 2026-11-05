@@ -25,7 +25,7 @@ git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/
 
 | Plugin | |
 |---|---|
-| [dsh-prompt-predict](https://github.com/ferrisching/dsh-prompt-predict) | suggests your next prompt after each answer, accepted with Tab; in its settings, pin it to `romeo / dsh-deepseek-v4.1-flash-1017-1m` with reasoning off so that it stays fast |
+| [dsh-prompt-predict](https://github.com/ferrisching/dsh-prompt-predict) | suggests your next prompt after each answer, accepted with Tab; with `kimi+deepseek`, dsh-romeo points it to DeepSeek without reasoning so that it stays fast; otherwise it follows the session's model |
 | [dsh-sidenote](https://github.com/g-yixuan/dsh-sidenote) | side chat: a temporary conversation seeded from the session, whose answer comes back to the main thread |
 
 dsh already has plan mode (`/plan`) and a background jobs panel in the session header.
@@ -55,7 +55,7 @@ Host romeo
 | `dsh-romeo --status` | the gateway, the model jobs, the tunnel |
 | `dsh-romeo --stop` | stops the model jobs and closes the tunnel |
 | `dsh-romeo --setup` | copies the models' fiches to ROMEO again |
-| `dsh-romeo --models kimi ...` | the models, before any other option, kept for the next runs (see below) |
+| `dsh-romeo --models kimi ...` | the models, kept for the next runs (see below); options go in any order |
 | `dsh-romeo --voice on --launch` | voice input: dsh's microphone button, transcribed by Whisper on ROMEO (see below); kept for the next runs |
 
 `--launch` combines with the others, in any order with `--models`, `--serve`, `--env` and `--desktop`: `dsh-romeo --desktop --launch`, `dsh-romeo --launch --run opencode` (before `--run`, whose arguments are the client's). While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
@@ -64,7 +64,7 @@ Host romeo
 
 | `--models` / `DSH_ROMEO_MODELS` | Agent | Subagents | Jobs |
 |---|---|---|---|
-| `deepseek` (default) | DeepSeek-V4.1-Flash-1017 | the same | 2 nodes, 8 GH200 each |
+| `deepseek` (default) | DeepSeek-V4.1-Flash-1017 | the same | 2 nodes, 8 GH200 |
 | `kimi` | Kimi-K3.1-Pro | the same | 8 nodes, 32 GH200: one job at most within ROMEO's 60-GPU account limit |
 | `kimi+deepseek` | Kimi-K3.1-Pro | DeepSeek-V4.1-Flash-1017 | one Kimi job and one DeepSeek job (40 GPUs) |
 
@@ -105,7 +105,7 @@ For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 
 ## Settings
 
-`install.sh` writes them to `~/.config/dsh-romeo/config`; a variable set in the environment wins.
+`install.sh` writes most of them to `~/.config/dsh-romeo/config`; a variable set in the environment wins. `--models` and `--voice` are remembered in `~/.config/dsh-romeo/models` and `voice`. Rarely needed: `DSH_ROMEO_POLL` (seconds between checks while a model loads), `DSH_ROMEO_SOCKET` (the SSH control socket), `DSH_ROMEO_DSH`, `DSH_ROMEO_DESKTOP_APP`, `DSH_ROMEO_DESKTOP_DSH` (which dsh and app to use), `DSH_ROMEO_CONFIG_DIR`, `ROMEOLLMTOOL`.
 
 | Variable | Default | |
 |---|---|---|

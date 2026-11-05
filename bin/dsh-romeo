@@ -3,7 +3,7 @@
 #
 #   dsh-romeo                     open the dsh Web UI (every dsh profile and argument passes through:
 #   dsh-romeo headless "a task"     dsh-romeo web --port 3000, dsh-romeo headless "...")
-#   dsh-romeo --models M ...      the models, before any other option, kept for the next runs:
+#   dsh-romeo --models M ...      the models, kept for the next runs:
 #                                   deepseek (default), kimi, or kimi+deepseek (DeepSeek subagents)
 #   dsh-romeo --launch [N]        submit N model jobs (default 1), wait for the model, then open dsh
 #   dsh-romeo --desktop           the DeepSeek Harness desktop app (macOS) instead of the Web UI
@@ -195,7 +195,13 @@ launch_jobs() {  # $1 jobs of the agent's model, one of the subagents' and one o
   [ -n "$ROMEO_PROJECT" ] || die "no project code: set ROMEO_PROJECT in $CONFIG_DIR/config (rerun install.sh)"
   # 32 GPUs per Kimi job, 60 per account: a second one would wait forever.
   [ "$LABEL" != Kimi-K3.1-Pro ] || [ "$n" -eq 1 ] || die "Kimi-K3.1-Pro takes 32 GPUs: one job fits in ROMEO's 60-GPU limit"
-  for _ in $(seq 1 "$n"); do launch_one "$FICHE"; done
+  local queued
+  queued=$(jobs_of_fiche "$FICHE" | awk '{print $1}' | tr '\n' ' ')
+  if [ "$LABEL" = Kimi-K3.1-Pro ] && [ -n "$queued" ]; then
+    say "Kimi job ${queued% } already queued or running: no second one ${D}(32 GPUs each, 60 per account)${N}"
+  else
+    for _ in $(seq 1 "$n"); do launch_one "$FICHE"; done
+  fi
   [ -z "$SUB_FICHE" ] || [ -n "$(jobs_of_fiche "$SUB_FICHE")" ] || launch_one "$SUB_FICHE"
   [ -z "$VOICE_FICHE" ] || [ -n "$(jobs_of_fiche "$VOICE_FICHE")" ] || launch_one "$VOICE_FICHE"
 }
@@ -214,7 +220,7 @@ open_tunnel() {  # 127.0.0.1:$PORT -> the gateway, kept when it already leads th
   target=${target%/v1}
   previous=$(cat "$CTL.target" 2>/dev/null || true)
   [ "$previous" = "$target" ] && probe_models >/dev/null 2>&1 && return 0
-  [ -n "$previous" ] && ssh -S "$CTL" -O cancel -L "$PORT:$previous" "$HOST" 2>/dev/null
+  [ -z "$previous" ] || ssh -S "$CTL" -O cancel -L "$PORT:$previous" "$HOST" 2>/dev/null || true
   ssh -S "$CTL" -O cancel -L "$PORT:$target" "$HOST" 2>/dev/null || true
   ssh -S "$CTL" -O forward -L "$PORT:$target" "$HOST" 2>/dev/null \
     || die "cannot forward 127.0.0.1:$PORT (another program uses it? set DSH_ROMEO_PORT)"
@@ -241,14 +247,21 @@ ensure_fast_gateway() {
   fi
 }
 
+# curl with "Authorization: Bearer $1" read from stdin, not from its arguments (seen by ps).
+curl_key() {
+  local key=$1
+  shift
+  printf 'header = "Authorization: Bearer %s"\n' "$key" | curl -K - "$@"
+}
+
 probe_models() {  # the gateway's model list, through the tunnel
-  curl -sf -m 10 "http://127.0.0.1:$PORT/v1/models" -H "Authorization: Bearer $ROMEO_LLM_KEY"
+  curl_key "$ROMEO_LLM_KEY" -sf -m 10 "http://127.0.0.1:$PORT/v1/models"
 }
 
 model_answers() {  # a one-token completion: model $1 is loaded and serving
   local code
-  code=$(curl -s -o /dev/null -m 60 -w '%{http_code}' "http://127.0.0.1:$PORT/v1/chat/completions" \
-    -H "Authorization: Bearer $ROMEO_LLM_KEY" -H 'Content-Type: application/json' \
+  code=$(curl_key "$ROMEO_LLM_KEY" -s -o /dev/null -m 60 -w '%{http_code}' "http://127.0.0.1:$PORT/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
     -d "{\"model\":\"$1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"reasoning_effort\":\"none\"}" || true)
   [ "$code" = 200 ]
 }
@@ -272,7 +285,7 @@ wait_for_model() {
     line=$(waiting_line "$jobs" $(( $(date +%s) - start )))
     if [ -t 2 ]; then  # one line, rewritten in place: never wider than the terminal
       width=$(tput cols 2>/dev/null || echo 100)
-      line=${line:0:$((width - 11))}
+      line=${line:0:$((width > 20 ? width - 11 : 10))}
       printf '\r\033[K%s %s' "${B}dsh-romeo${N}" "${D}$line${N}" >&2
     elif [ "${line%% · [0-9]*}" != "$shown" ]; then
       say "$line"
@@ -317,7 +330,7 @@ YAML
 # desktop app has its own, of its own version), $3: the profile whose plugins count (default $1).
 helper_patch() {
   local manifest=${DSH_HOME:-$HOME/.dsh}/profiles/${3:-$1}/package.json dump bundle_patch extra=()
-  bundle_patch=$(npm root -g 2>/dev/null)/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-experimental-session-titles-bundle/cordis.patch.yml
+  bundle_patch=$(npm root -g 2>/dev/null || true)/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-experimental-session-titles-bundle/cordis.patch.yml
   # The all-prompts titles bundle of a profile that is not the dumped one (the app's).
   if [ -n "${3:-}" ] && profile_has_bundle "$manifest" dsh-experimental-session-titles-bundle && [ -f "$bundle_patch" ]; then
     extra=(--patch "$bundle_patch")
@@ -435,7 +448,7 @@ YAML
     reasoningEffort: $DSH_ROMEO_EFFORT
 YAML
     [ -z "$SUB_MODEL" ] || helper_patch "${1:-web}" "${2:-}" "${3:-}"
-    [ -z "$VOICE_FICHE" ] || voice_patch "${1:-web}"
+    [ -z "$VOICE_FICHE" ] || voice_patch "${3:-${1:-web}}"
     if [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
       cat <<YAML
 # Web search through SearXNG (DSH_ROMEO_SEARXNG_URL).
@@ -484,10 +497,15 @@ desktop_dsh() {  # the dsh command line inside the app, empty when not found
 merge_desktop_patch() {
   cat "$OVERLAY"
   [ -f "$1" ] || return 0
-  awk -v ids="$(sed -n 's/^- id: //p' "$OVERLAY" | tr '\n' ' ') llm-pi-ai agent-default-model tool-subagent session-title-llm optional-session-title-all-prompts dsh-prompt-predict" '
-    BEGIN { n = split(ids, a, " "); for (i = 1; i <= n; i++) ours[a[i]] = 1 }
+  # Rows the overlay writes again are replaced; rows of an earlier start under ids dsh-romeo uses go
+  # only when they carry its marks (the romeo provider, its plugins), not the app's own settings.
+  awk -v ids="$(sed -n 's/^- id: //p' "$OVERLAY" | tr '\n' ' ')" -v earlier="llm-pi-ai agent-default-model tool-subagent session-title-llm optional-session-title-all-prompts dsh-prompt-predict speech-to-text" '
+    BEGIN {
+      n = split(ids, a, " "); for (i = 1; i <= n; i++) ours[a[i]] = 1
+      n = split(earlier, a, " "); for (i = 1; i <= n; i++) old[a[i]] = 1
+    }
     function flush() {
-      if (row != "" && !(id in ours) && row !~ /dsh-romeo-searxng/ && row !~ /dsh-romeo-whisper/ && row !~ /agentOptions:\n *provider: romeo\n/)
+      if (row != "" && !(id in ours) && !((id in old) && row ~ /romeo/) && row !~ /dsh-romeo-searxng/ && row !~ /dsh-romeo-whisper/ && row !~ /agentOptions:\n *provider: romeo\n/)
         printf "%s", row
       row = ""; id = ""
     }
@@ -504,7 +522,7 @@ run_desktop() {
   local app_dsh
   app_dsh=${DSH_ROMEO_DESKTOP_DSH:-$(desktop_dsh)}
   write_overlay web "$app_dsh" desktop
-  local dir=$HOME/.dsh/profiles/desktop
+  local dir=${DSH_HOME:-$HOME/.dsh}/profiles/desktop
   local patch=$dir/cordis.patch.yml
   mkdir -p "$dir"
   if [ -f "$patch" ] && ! grep -q '^# Written by dsh-romeo' "$patch" && grep -q -v -E '^[[:space:]]*(#|\[\][[:space:]]*$|$)' "$patch" \
@@ -639,20 +657,18 @@ cmd_status() {
   fi
 }
 
-cmd_stop() {
+cmd_stop() {  # the jobs of every dsh-romeo model, also those of a choice of models made earlier
   connect
-  local jobs id f
-  for f in $FICHES; do
+  local jobs id f stopped=0
+  for f in $(printf '%s\n' $FICHES "$FICHE_DEEPSEEK" "$FICHE_KIMI" "$FICHE_VOICE" | awk '!seen[$0]++'); do
     jobs=$(jobs_of_fiche "$f")
-    if [ -z "$jobs" ]; then
-      say "no model job of $f"
-    else
-      for id in $(printf '%s\n' "$jobs" | awk '{print $1}'); do
-        rlt stop "$id" </dev/null >/dev/null 2>&1 || rsh "scancel $id"
-        say "model job $id stopped ${D}($f)${N}"
-      done
-    fi
+    for id in $(printf '%s\n' "$jobs" | awk '{print $1}'); do
+      rlt stop "$id" </dev/null >/dev/null 2>&1 || rsh "scancel $id"
+      say "model job $id stopped ${D}($f)${N}"
+      stopped=1
+    done
   done
+  [ "$stopped" = 1 ] || say "no model job of dsh-romeo"
   if [ "$DSH_ROMEO_GATEWAY" = fast ]; then
     rsh "pkill -u \$USER -f '$FAST_PATTERN'" && say "fast gateway stopped"
   fi
@@ -677,7 +693,7 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
   ensure_gateway
   read_fiches
   [ "$launch" -eq 0 ] || launch_jobs "$launch"
-  ROMEO_LLM_KEY=$(rlt gateway show-key | tr -d '[:space:]')
+  ROMEO_LLM_KEY=$(rlt gateway show-key | tr -d '[:space:]') || true
   [ -n "$ROMEO_LLM_KEY" ] || die "cannot read the gateway key"
   [ "$DSH_ROMEO_GATEWAY" = fast ] && ensure_fast_gateway
   open_tunnel
@@ -704,7 +720,7 @@ open_voice_tunnel() {
   job=$(jobs_of_fiche "$VOICE_FICHE" | awk '$2 == "RUNNING" { print $1; exit }')
   if [ -n "$job" ]; then
     voice_forward "$job" || return 0
-    if curl -sf -m 10 "http://127.0.0.1:$DSH_ROMEO_VOICE_PORT/v1/models" -H "Authorization: Bearer $(cat "$VOICE_KEY_FILE")" | grep -q "\"$VOICE_MODEL\""; then
+    if curl_key "$(cat "$VOICE_KEY_FILE")" -sf -m 10 "http://127.0.0.1:$DSH_ROMEO_VOICE_PORT/v1/models" | grep -q "\"$VOICE_MODEL\""; then
       say "voice input ${G}ready${N} ${D}(Whisper on ROMEO, job $job)${N}"
     else
       say "voice input ${Y}loading${N} ${D}(Whisper job $job, a few minutes; the microphone works once it is up)${N}"
