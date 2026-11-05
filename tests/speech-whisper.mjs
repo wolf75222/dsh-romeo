@@ -35,5 +35,16 @@ check('returns the trimmed text', out.text === 'Bonjour ROMEO.')
 check('measures the audio', Math.abs(out.audioSeconds - 1) < 1e-9)
 await provider.transcribe({ audio: wav, language: 'auto' }, AbortSignal.timeout(5000))
 check('auto: lets Whisper detect the language', !seen.body.includes('name="language"'))
+const { writeFileSync, mkdtempSync } = await import('node:fs')
+const keyFile = mkdtempSync('/tmp/whisper-key-') + '/key'
+writeFileSync(keyFile, 'key-from-file\n')
+let fileProvider
+apply({ speechToText: { register: (p) => { fileProvider = p; return async () => {} } }, effect: (fn) => fn() },
+      { baseURL: `http://127.0.0.1:${port}/v1`, apiKeyFile: keyFile })
+await fileProvider.transcribe({ audio: wav, language: 'fr' }, AbortSignal.timeout(5000))
+check('reads the key from apiKeyFile at each recording', seen.auth === 'Bearer key-from-file')
+writeFileSync(keyFile, 'new-job-key\n')
+await fileProvider.transcribe({ audio: wav, language: 'fr' }, AbortSignal.timeout(5000))
+check('picks up a key written later', seen.auth === 'Bearer new-job-key')
 server.close()
 process.exit(failed ? 1 : 0)

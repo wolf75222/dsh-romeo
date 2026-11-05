@@ -16,6 +16,8 @@ export FAKE_ROMEO_STATE=$T/state FAKE_ROMEO_HOME=$T/romeo-home FAKE_GATEWAY_PORT
 export PATH=$FAKE:$PATH ROMEOLLMTOOL=$FAKE/romeollmtool DSH_ROMEO_DSH=$FAKE/dsh DSH_ROMEO_POLL=1
 export DSH_ROMEO_CONFIG_DIR=$T/config DSH_ROMEO_SOCKET=$T/ctl DSH_ROMEO_PORT=$PORT
 export ROMEO_SSH_HOST=romeo ROMEO_PROJECT=r000000
+# The fast gateway's start.sh must not find romeollmtool's real Python, even on a ROMEO login node.
+export ROMEOLLMTOOL_PYTHON=$T/no-such-python
 unset DSH_ROMEO_FICHE DSH_ROMEO_SEARXNG_URL DSH_ROMEO_EFFORT DSH_ROMEO_TIME
 mkdir -p "$FAKE_ROMEO_STATE" "$FAKE_ROMEO_HOME"
 
@@ -230,12 +232,23 @@ check "voice: ready" has "voice input ready"
 check "voice overlay: the provider plugin" grep -q "name: $ROOT/share/speech-whisper-romeo.mjs" "$overlay"
 check "voice overlay: Whisper selected" grep -q "defaultProvider: dsh-romeo-whisper" "$overlay"
 check "voice overlay: straight to the job, not the gateway" grep -q "baseURL: http://127.0.0.1:$PORT/v1" "$overlay"
-check "voice overlay: with the job's key" grep -q "apiKeyEnv: DSH_ROMEO_WHISPER_KEY" "$overlay"
-check "voice: dsh gets the job's key" grep -q "whisper key: test-key-of-the-job-0123456789" "$FAKE_ROMEO_STATE/dsh-call"
+check "voice overlay: the job's key from a file" grep -q "apiKeyFile: $DSH_ROMEO_CONFIG_DIR/whisper.key" "$overlay"
+check "voice: the job's key written" grep -qx "test-key-of-the-job-0123456789" "$DSH_ROMEO_CONFIG_DIR/whisper.key"
 check "voice overlay: the microphone button" grep -q "dsh-experimental-client-ui-voice-input" "$overlay"
 check "voice overlay: no local SenseVoice" bash -c "! grep -q sensevoice '$overlay'"
 run --status
 check "voice: remembered, its job listed" has "dsh-whisper-large-v3-turbo"
+# A Whisper job that starts after dsh: a watcher opens the tunnel and writes the key by itself.
+run --voice on --stop
+rm -f "$DSH_ROMEO_CONFIG_DIR/whisper.key"
+echo dsh-whisper-large-v3-turbo >"$FAKE_ROMEO_STATE/pending"
+DSH_ROMEO_VOICE_PORT=$PORT run --voice on --launch headless "late voice"
+check "late voice: waiting for its GPU" has "voice input waiting for its GPU"
+check "late voice: no key yet" test ! -e "$DSH_ROMEO_CONFIG_DIR/whisper.key"
+rm -f "$FAKE_ROMEO_STATE/pending"
+for _ in $(seq 1 20); do [ -s "$DSH_ROMEO_CONFIG_DIR/whisper.key" ] && break; sleep 0.5; done
+check "late voice: the watcher wrote the key once the job runs" grep -qx "test-key-of-the-job-0123456789" "$DSH_ROMEO_CONFIG_DIR/whisper.key"
+check "late voice: and noted the tunnel" test -s "$DSH_ROMEO_SOCKET.voice"
 run --voice off headless "no voice"
 check "voice off: overlay without voice" bash -c "! grep -q dsh-romeo-whisper '$overlay'"
 run --voice on --stop
@@ -284,6 +297,23 @@ out=$(DSH_HOME=$T/plugins-home2 FAKE_DSH_REFUSE=dsh-sidenote "$ROOT/share/option
 check "plugins: a refused one is reported" has "dsh-sidenote: not installed (ERR_DSH_INCOMPATIBLE"
 check "plugins: the others still installed" has "dsh-prompt-predict: installed, off"
 check "plugins: exit 1 when one fails" test "$code" = 1
+out=$(DSH_HOME=$T/plugins-home3 FAKE_DSH_REFUSE_PINNED=dsh-sidenote "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
+check "plugins: a refused pinned version falls back to the latest" has "dsh-sidenote: dsh-sidenote@.* refused by dsh 0.2.2-rc.1, installed 9.9.9 instead, off"
+# A newer dsh: an installed version whose range excludes it moves to the latest, on or off as it was.
+P4=$T/plugins-home4
+DSH_HOME=$P4 FAKE_PINNED_RANGE='dsh-sidenote=>=0.2.2-rc.1 <0.2.3-0' "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" >/dev/null 2>&1
+node -e 'const fs=require("fs"),f=process.argv[1],d=require(f); d.dsh.profile.bundles.push("dsh-sidenote"); fs.writeFileSync(f, JSON.stringify(d))' "$P4/profiles/web/package.json"
+out=$(DSH_HOME=$P4 FAKE_DSH_VERSION=0.2.2-rc.1 "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
+check "plugins: a fitting version is left alone" has "dsh-sidenote: already in the web profile, left as it is"
+out=$(DSH_HOME=$P4 FAKE_DSH_VERSION=0.2.3 "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
+check "plugins, dsh 0.2.3: sidenote moved to the latest, still on" has "dsh-sidenote: 0.8.3 does not fit dsh 0.2.3, moved to 9.9.9 (on;"
+check "plugins, dsh 0.2.3: prompt-predict (no range) left alone" has "dsh-prompt-predict: already in the web profile"
+check "plugins, dsh 0.2.3: sidenote still selected" node -e 'process.exit(require(process.argv[1]).dsh.profile.bundles.includes("dsh-sidenote") ? 0 : 1)' "$P4/profiles/web/package.json"
+P5=$T/plugins-home5
+DSH_HOME=$P5 FAKE_PINNED_RANGE='dsh-sidenote=>=0.2.2-rc.1 <0.2.3-0' "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" >/dev/null 2>&1
+out=$(DSH_HOME=$P5 FAKE_DSH_VERSION=0.2.3 "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
+check "plugins, dsh 0.2.3: an off plugin stays off after the move" has "dsh-sidenote: 0.8.3 does not fit dsh 0.2.3, moved to 9.9.9 (off;"
+check "plugins, dsh 0.2.3: and is still out of the selection" node -e 'process.exit(require(process.argv[1]).dsh.profile.bundles.includes("dsh-sidenote") ? 1 : 0)' "$P5/profiles/web/package.json"
 
 # The romeo skill: frontmatter dsh accepts, links that resolve, and its env.sh against the fake ROMEO.
 SKILL=$ROOT/share/skills/romeo
@@ -295,7 +325,7 @@ out=$(cd "$SKILL" && for md in SKILL.md references/*.md; do
     [ -e "$(dirname "$md")/$l" ] || echo "$md: $l"; done; done)
 check "skill: relative links resolve" test -z "$out"
 out=$(printf 'ROMEO_SSH_HOST=romeo\nROMEO_PROJECT=r000000\n' >"$T/skill-config"; mkdir -p "$T/xdg/dsh-romeo"; cp "$T/skill-config" "$T/xdg/dsh-romeo/config"
-  env -u ROMEO_PROJECT XDG_CONFIG_HOME=$T/xdg bash -c '. "$1"; echo "project=$ROMEO_PROJECT"; R "echo remote-user=\$USER"' _ "$SKILL/scripts/env.sh" 2>&1)
+  env -u ROMEO_PROJECT ROMEO_WHERE=remote XDG_CONFIG_HOME=$T/xdg bash -c '. "$1"; echo "project=$ROMEO_PROJECT"; R "echo remote-user=\$USER"' _ "$SKILL/scripts/env.sh" 2>&1)
 check "skill env.sh: project from dsh-romeo's config" has "project=r000000"
 check "skill env.sh: R runs over ssh" has "remote-user=demo"
 

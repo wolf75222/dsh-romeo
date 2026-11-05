@@ -4,6 +4,10 @@
 
 ## 2026-11-05
 
+- With `kimi+deepseek`, DeepSeek also writes the session titles and dsh-prompt-predict's suggestions (when it is on, without reasoning); before, they ran on Kimi or on the plugin's own setting. Auto review has no model setting (it uses the session's), and the MCP client needs servers of your own: both documented.
+- Voice input with a Whisper job that starts after dsh: a background watcher opens the tunnel once the job runs, and the plugin reads the job's key from a file at each recording, so the microphone works without restarting dsh.
+- `install.sh` keeps the optional plugins working on a newer dsh: an installed version outside its declared dsh range moves to the latest version (keeping its on/off state), and a refused pinned version falls back to the latest.
+- Test suite: passes in full on a ROMEO login node too (the skill's env.sh can be told it runs remote, and the fast gateway test no longer finds ROMEO's real romeollmtool Python).
 - `install.sh` installs optional third-party dsh plugins, turned off, in the `web` and desktop app profiles: dsh-prompt-predict (next-prompt suggestions) and dsh-sidenote (side chat). Turn them on in dsh's Plugins page; `--no-plugins` skips them. Checked on dsh 0.2.2-rc.1: they load and show under *Installed plugins* with their switch off. Plugins that import dsh internals (dsh-answer-reviewer, dsh-task-supervisor, dsh-claude-move) do not load on 0.2.2 and are left out.
 - The README GIF plays in 16 s instead of 33: `tests/demo.py render` cuts pauses to 45 % (typing kept as recorded).
 - Images with DeepSeek-V4.1-Flash-1017: its fiche now serves the vision encoder (tested on ROMEO: image read correctly, 6.34M tokens of KV cache instead of 6.5M, 160 tok/s for one agent), and dsh-romeo declares a model `input: [ text, image ]` unless its fiche passes `--language-model-only`, so you can paste screenshots in dsh. Kimi-K3.1-Pro stays text only until its own test runs. Run `dsh-romeo --setup` (or `./install.sh`) to copy the new fiche, then relaunch the DeepSeek job.

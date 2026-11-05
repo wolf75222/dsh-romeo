@@ -309,23 +309,34 @@ overlay_model() {  # $1 model, $2 name, $3 context, $4 output limit, $5 inputs (
 YAML
 }
 
-# The subagents' model: dsh composes its "subagent" tool inside each agent preset, which a patch
-# cannot reach row by row, so the rows holding one are restated whole from dsh's own composition
-# (dsh --dump-config) with agentOptions added to that tool. $1: the dsh profile, $2: the dsh whose
-# composition it is (the desktop app has its own, of its own version).
-subagent_patch() {
-  local dump
-  dump=$("${2:-${DSH_ROMEO_DSH:-dsh}}" --profile "$1" --dump-config 2>/dev/null) \
+# DeepSeek beside Kimi (kimi+deepseek) also does the side work: the subagents, the session titles
+# and, when it is on, dsh-prompt-predict. dsh composes its "subagent" tool inside each agent preset,
+# which a patch cannot reach row by row, so the rows involved are restated whole from dsh's own
+# composition (dsh --dump-config) with their route added: agentOptions for the subagent tool,
+# provider/model for the title rows. $1: the dsh profile, $2: the dsh whose composition it is (the
+# desktop app has its own, of its own version), $3: the profile whose plugins count (default $1).
+helper_patch() {
+  local manifest=${DSH_HOME:-$HOME/.dsh}/profiles/${3:-$1}/package.json dump bundle_patch extra=()
+  bundle_patch=$(npm root -g 2>/dev/null)/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-experimental-session-titles-bundle/cordis.patch.yml
+  # The all-prompts titles bundle of a profile that is not the dumped one (the app's).
+  if [ -n "${3:-}" ] && profile_has_bundle "$manifest" dsh-experimental-session-titles-bundle && [ -f "$bundle_patch" ]; then
+    extra=(--patch "$bundle_patch")
+  fi
+  dump=$("${2:-${DSH_ROMEO_DSH:-dsh}}" --profile "$1" ${extra[@]+"${extra[@]}"} --dump-config 2>/dev/null) \
     && grep -q -- '- id: tool-subagent$' <<<"$dump" \
-    || { say "${Y}cannot read dsh's composition${N}: subagents keep $LABEL"; return 0; }
-  printf '# Subagents (the "subagent" tool) on %s.\n' "$SUB_LABEL"
+    || { say "${Y}cannot read dsh's composition${N}: subagents and titles keep $LABEL"; return 0; }
+  printf '# Subagents (the "subagent" tool) and session titles on %s.\n' "$SUB_LABEL"
   awk -v model="$SUB_MODEL" -v effort="$DSH_ROMEO_EFFORT" '
-    function flush() { if (hit) printf "%s", row; row = ""; hit = 0 }
+    function flush() { if (hit) printf "%s", row; row = ""; hit = 0; top = "" }
     function lead(s) { match(s, /^ */); return RLENGTH }
     /^#/ { next }  # the dump'\''s source comments; blank lines belong to block scalars
-    /^- / { flush(); inside = 0 }
+    /^- / { flush(); inside = 0; top = $0; sub(/^- id: /, "", top) }
     {
       row = row $0 "\n"
+      if ((top == "session-title-llm" || top == "optional-session-title-all-prompts") && $0 == "  config:") {
+        row = row "    provider: romeo\n    model: " model "\n"
+        hit = 1
+      }
       if ($0 ~ /^ *- id: tool-subagent$/) { sub_at = lead($0); inside = 1; next }
       if (inside && $0 ~ /^ *- / && lead($0) <= sub_at) inside = 0
       if (inside && $0 ~ /^ *config:$/ && lead($0) == sub_at + 2) {
@@ -335,6 +346,22 @@ subagent_patch() {
       }
     }
     END { flush() }' <<<"$dump"
+  if profile_has_bundle "$manifest" dsh-prompt-predict; then
+    cat <<YAML
+# dsh-prompt-predict (on in this profile) on $SUB_LABEL, without reasoning: fast suggestions.
+- id: dsh-prompt-predict
+  config:
+    provider: romeo
+    model: $SUB_MODEL
+    reasoningEffort: "off"
+YAML
+  fi
+}
+
+profile_has_bundle() {  # $1: a profile's package.json, $2: a bundle it selects
+  [ -f "$1" ] && grep -q "\"$2\"" "$1" && node -e '
+    const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
+    process.exit((d.dsh?.profile?.bundles ?? []).includes(process.argv[2]) ? 0 : 1)' "$1" "$2" 2>/dev/null
 }
 
 # Voice input: dsh's microphone button (its experimental voice bundle, without the local SenseVoice
@@ -370,12 +397,12 @@ YAML
       name: $ROOT/share/speech-whisper-romeo.mjs
       config:
         baseURL: http://127.0.0.1:$DSH_ROMEO_VOICE_PORT/v1
-        apiKeyEnv: DSH_ROMEO_WHISPER_KEY
+        apiKeyFile: $VOICE_KEY_FILE
         model: $VOICE_MODEL
 YAML
 }
 
-write_overlay() {  # $1: the dsh profile, $2: the dsh that runs it
+write_overlay() {  # $1: the dsh profile, $2: the dsh that runs it, $3: the profile whose plugins count
   mkdir -p "$CONFIG_DIR"
   {
     cat <<YAML
@@ -407,7 +434,7 @@ YAML
     model: $MODEL
     reasoningEffort: $DSH_ROMEO_EFFORT
 YAML
-    [ -z "$SUB_MODEL" ] || subagent_patch "${1:-web}" "${2:-}"
+    [ -z "$SUB_MODEL" ] || helper_patch "${1:-web}" "${2:-}" "${3:-}"
     [ -z "$VOICE_FICHE" ] || voice_patch "${1:-web}"
     if [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
       cat <<YAML
@@ -457,7 +484,7 @@ desktop_dsh() {  # the dsh command line inside the app, empty when not found
 merge_desktop_patch() {
   cat "$OVERLAY"
   [ -f "$1" ] || return 0
-  awk -v ids="$(sed -n 's/^- id: //p' "$OVERLAY" | tr '\n' ' ') llm-pi-ai agent-default-model tool-subagent" '
+  awk -v ids="$(sed -n 's/^- id: //p' "$OVERLAY" | tr '\n' ' ') llm-pi-ai agent-default-model tool-subagent session-title-llm optional-session-title-all-prompts dsh-prompt-predict" '
     BEGIN { n = split(ids, a, " "); for (i = 1; i <= n; i++) ours[a[i]] = 1 }
     function flush() {
       if (row != "" && !(id in ours) && row !~ /dsh-romeo-searxng/ && row !~ /dsh-romeo-whisper/ && row !~ /agentOptions:\n *provider: romeo\n/)
@@ -476,7 +503,7 @@ run_desktop() {
   # with the app's own dsh, whose version can differ from the dsh installed with npm.
   local app_dsh
   app_dsh=${DSH_ROMEO_DESKTOP_DSH:-$(desktop_dsh)}
-  write_overlay web "$app_dsh"
+  write_overlay web "$app_dsh" desktop
   local dir=$HOME/.dsh/profiles/desktop
   local patch=$dir/cordis.patch.yml
   mkdir -p "$dir"
@@ -495,7 +522,7 @@ run_desktop() {
     for _ in $(seq 1 30); do pgrep -qf "/$DESKTOP_APP.app/Contents/MacOS/" || break; sleep 1; done
   fi
   say "opening $DESKTOP_APP ${D}(the tunnel stays open until dsh-romeo --stop)${N}"
-  open -a "$DESKTOP_APP" --env "ROMEO_LLM_KEY=$ROMEO_LLM_KEY" ${DSH_ROMEO_WHISPER_KEY:+--env "DSH_ROMEO_WHISPER_KEY=$DSH_ROMEO_WHISPER_KEY"}
+  open -a "$DESKTOP_APP" --env "ROMEO_LLM_KEY=$ROMEO_LLM_KEY"
 }
 
 # ---------------------------------------------------------------- other clients
@@ -630,7 +657,7 @@ cmd_stop() {
     rsh "pkill -u \$USER -f '$FAST_PATTERN'" && say "fast gateway stopped"
   fi
   disconnect
-  rm -f "$CTL.target" "$CTL.voice"
+  rm -f "$CTL.target" "$CTL.voice" "$VOICE_KEY_FILE"
   say "tunnel closed ${D}(romeollmtool's gateway keeps running; it stops by itself)${N}"
 }
 
@@ -666,34 +693,56 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
 
 # Voice input goes straight to the Whisper job: romeollmtool's gateway cannot relay audio uploads
 # (multipart /v1/audio/transcriptions: its python-multipart is missing). A second forward of the same
-# SSH connection, 127.0.0.1:$DSH_ROMEO_VOICE_PORT -> the job, with the job's own key in
-# DSH_ROMEO_WHISPER_KEY. dsh does not wait for Whisper: the microphone works once it is up.
+# SSH connection, 127.0.0.1:$DSH_ROMEO_VOICE_PORT -> the job, and the job's own key in
+# $VOICE_KEY_FILE, read by the plugin at each recording. A job still waiting for its GPU gets a
+# watcher in the background that does the same once it runs: the microphone then works without
+# restarting dsh.
+VOICE_KEY_FILE=$CONFIG_DIR/whisper.key
+
 open_voice_tunnel() {
-  local job ep target
+  local job
   job=$(jobs_of_fiche "$VOICE_FICHE" | awk '$2 == "RUNNING" { print $1; exit }')
-  if [ -z "$job" ]; then
-    if [ -n "$(jobs_of_fiche "$VOICE_FICHE")" ]; then say "voice input ${Y}waiting for its GPU${N} ${D}(run dsh-romeo again once it runs)${N}"
-    else say "voice input ${Y}off${N}: no Whisper job ${D}(dsh-romeo --launch)${N}"; fi
-    return 0
+  if [ -n "$job" ]; then
+    voice_forward "$job" || return 0
+    if curl -sf -m 10 "http://127.0.0.1:$DSH_ROMEO_VOICE_PORT/v1/models" -H "Authorization: Bearer $(cat "$VOICE_KEY_FILE")" | grep -q "\"$VOICE_MODEL\""; then
+      say "voice input ${G}ready${N} ${D}(Whisper on ROMEO, job $job)${N}"
+    else
+      say "voice input ${Y}loading${N} ${D}(Whisper job $job, a few minutes; the microphone works once it is up)${N}"
+    fi
+  elif [ -n "$(jobs_of_fiche "$VOICE_FICHE")" ]; then
+    voice_watch </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    say "voice input ${Y}waiting for its GPU${N} ${D}(the microphone works once the Whisper job runs)${N}"
+  else
+    say "voice input ${Y}off${N}: no Whisper job ${D}(dsh-romeo --launch)${N}"
   fi
-  ep=$(rlt endpoint "$job" --show-key 2>/dev/null) || true
+}
+
+voice_forward() {  # $1: a running Whisper job. Forward to it and write its key; 1 when it cannot.
+  local ep target key
+  ep=$(rlt endpoint "$1" --show-key 2>/dev/null) || true
   target=$(printf '%s\n' "$ep" | grep direct | grep -oE 'https?://[A-Za-z0-9.-]+:[0-9]+' | head -1)
-  DSH_ROMEO_WHISPER_KEY=$(printf '%s\n' "$ep" | sed -n '/clé interne/,$p' | grep -oE '[A-Za-z0-9_-]{24,}' | tail -1)
-  if [ -z "$target" ] || [ -z "$DSH_ROMEO_WHISPER_KEY" ]; then
-    say "voice input ${Y}unavailable${N}: cannot read the endpoint of Whisper job $job"
-    return 0
+  key=$(printf '%s\n' "$ep" | sed -n '/clé interne/,$p' | grep -oE '[A-Za-z0-9_-]{24,}' | tail -1)
+  if [ -z "$target" ] || [ -z "$key" ]; then
+    say "voice input ${Y}unavailable${N}: cannot read the endpoint of Whisper job $1"
+    return 1
   fi
   target=${target#*://}
   ssh -S "$CTL" -O cancel -L "$DSH_ROMEO_VOICE_PORT:$(cat "$CTL.voice" 2>/dev/null || echo "$target")" "$HOST" 2>/dev/null || true
   ssh -S "$CTL" -O forward -L "$DSH_ROMEO_VOICE_PORT:$target" "$HOST" 2>/dev/null \
-    || { say "voice input ${Y}unavailable${N}: cannot forward 127.0.0.1:$DSH_ROMEO_VOICE_PORT (set DSH_ROMEO_VOICE_PORT)"; return 0; }
+    || { say "voice input ${Y}unavailable${N}: cannot forward 127.0.0.1:$DSH_ROMEO_VOICE_PORT (set DSH_ROMEO_VOICE_PORT)"; return 1; }
   printf '%s\n' "$target" >"$CTL.voice"
-  export DSH_ROMEO_WHISPER_KEY
-  if curl -sf -m 10 "http://127.0.0.1:$DSH_ROMEO_VOICE_PORT/v1/models" -H "Authorization: Bearer $DSH_ROMEO_WHISPER_KEY" | grep -q "\"$VOICE_MODEL\""; then
-    say "voice input ${G}ready${N} ${D}(Whisper on ROMEO, job $job)${N}"
-  else
-    say "voice input ${Y}loading${N} ${D}(Whisper job $job, a few minutes; the microphone works once it is up)${N}"
-  fi
+  (umask 077; printf '%s\n' "$key" >"$VOICE_KEY_FILE.tmp") && mv "$VOICE_KEY_FILE.tmp" "$VOICE_KEY_FILE"
+}
+
+voice_watch() {  # until the Whisper job runs (6 h at most), then voice_forward; ends with its job
+  local _ job
+  for _ in $(seq 1 "${DSH_ROMEO_VOICE_WATCH_TRIES:-720}"); do
+    sleep "${DSH_ROMEO_POLL:-30}"
+    [ -n "$(jobs_of_fiche "$VOICE_FICHE")" ] || return 0
+    job=$(jobs_of_fiche "$VOICE_FICHE" | awk '$2 == "RUNNING" { print $1; exit }')
+    if [ -n "$job" ]; then voice_forward "$job"; return 0; fi
+  done
 }
 
 main() {

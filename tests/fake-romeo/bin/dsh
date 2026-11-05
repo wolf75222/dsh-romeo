@@ -6,19 +6,28 @@ case " $* " in
     [ -n "${FAKE_DSH_REAL:-}" ] && exec "$FAKE_DSH_REAL" "$@"
     exec cat "$(dirname "$0")/../dump-web.yml" ;;
 esac
+[ "${1:-}" = --version ] && { echo "${FAKE_DSH_VERSION:-0.2.2-rc.1}"; exit 0; }
 # dsh plugin --profile P add SPEC: the package becomes a dependency and a selected bundle, as
-# pnpm and dsh do; FAKE_DSH_REFUSE names a package whose install fails.
+# pnpm and dsh do, with node_modules/NAME/package.json. FAKE_PINNED_RANGE=NAME=RANGE: the pinned
+# version of NAME declares that dsh range; @latest is 9.9.9 for any dsh. FAKE_DSH_REFUSE names a package whose installs
+# fail, FAKE_DSH_REFUSE_PINNED one whose pinned version fails (not @latest).
 if [ "${1:-}" = plugin ] && [ "${4:-}" = add ]; then
-  spec=$5 name=${5%@*} dir=${DSH_HOME:-$HOME/.dsh}/profiles/$3
+  spec=$5 name=${5%@*} version=${5##*@} dir=${DSH_HOME:-$HOME/.dsh}/profiles/$3
   [ "$name" = "${FAKE_DSH_REFUSE:-}" ] && { echo "ERR_DSH_INCOMPATIBLE: $spec requires another dsh" >&2; exit 1; }
-  mkdir -p "$dir"
+  [ "$name" = "${FAKE_DSH_REFUSE_PINNED:-}" ] && [ "$version" != latest ] && { echo "ERR_DSH_INCOMPATIBLE: $spec requires another dsh" >&2; exit 1; }
+  range=''
+  [ "${FAKE_PINNED_RANGE%%=*}" = "$name" ] && range=${FAKE_PINNED_RANGE#*=}
+  [ "$version" = latest ] && version=9.9.9 range='>=0.0.0'
+  mkdir -p "$dir/node_modules/$name"
   [ -f "$dir/package.json" ] || echo '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"]}}}' >"$dir/package.json"
   node -e '
-    const fs = require("fs"), [file, name, version] = process.argv.slice(1)
-    const d = JSON.parse(fs.readFileSync(file, "utf8"))
+    const fs = require("fs"), [dir, name, version, range] = process.argv.slice(1)
+    const file = dir + "/package.json", d = JSON.parse(fs.readFileSync(file, "utf8"))
     d.dependencies = { ...(d.dependencies || {}), [name]: version }
-    d.dsh.profile.bundles.push(name)
-    fs.writeFileSync(file, JSON.stringify(d))' "$dir/package.json" "$name" "${spec##*@}"
+    if (!d.dsh.profile.bundles.includes(name)) d.dsh.profile.bundles.push(name)
+    fs.writeFileSync(file, JSON.stringify(d))
+    fs.writeFileSync(dir + "/node_modules/" + name + "/package.json",
+      JSON.stringify({ name, version, ...(range ? { dsh: { engines: { dsh: range } } } : {}) }))' "$dir" "$name" "$version" "$range"
   exit 0
 fi
 { echo "args: $*"; echo "key: ${ROMEO_LLM_KEY:-}"; echo "whisper key: ${DSH_ROMEO_WHISPER_KEY:-}"; } >"$FAKE_ROMEO_STATE/dsh-call"

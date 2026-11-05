@@ -4,7 +4,8 @@
 # ROMEO_PROJECT: from the environment, else dsh-romeo's config, else empty (then choose one, see SKILL.md).
 # shellcheck disable=SC2034,SC1091   # variables are for the caller; the config is the user's
 
-if [ -d /apps/romeotools ]; then
+# ROMEO_WHERE=remote forces the remote side (tests run on ROMEO itself).
+if [ "${ROMEO_WHERE:-}" != remote ] && [ -d /apps/romeotools ]; then
   ROMEO_WHERE=romeo
   R() { bash -lc "$1"; }
 else
