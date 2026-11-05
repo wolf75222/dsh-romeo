@@ -178,6 +178,27 @@ if [ "$(uname)" = Darwin ]; then
   check "--desktop without the app: says so" has "app is not installed"
 fi
 
+# A refused forward with the port free: once more on a new connection, then ssh's reason.
+rm -f "$DSH_ROMEO_SOCKET.target"   # no tunnel to reuse: the forward is asked for
+# (here the fake gateway itself listens on the port: an lsof that sees nothing, as on a real computer)
+mkdir -p "$T/nolsof"; printf '#!/bin/sh\nexit 0\n' >"$T/nolsof/lsof"; chmod +x "$T/nolsof/lsof"
+rm -f "$FAKE_ROMEO_STATE/forward-fails"
+PATH=$T/nolsof:$PATH FAKE_FORWARD_FAIL=1 run --serve
+check "forward refused once: a new connection and it works" has "base URL"
+rm -f "$FAKE_ROMEO_STATE/forward-fails" "$DSH_ROMEO_SOCKET.target"
+PATH=$T/nolsof:$PATH FAKE_FORWARD_FAIL=2 run --serve
+check "forward refused twice: ssh's reason, not a guess" has "ssh refused it: mux_client_forward"
+rm -f "$FAKE_ROMEO_STATE/forward-fails"
+# A ROMEO_LLM_KEY saved in dsh's credential store would replace the gateway's key.
+mkdir -p "$T/dsh-store"
+printf '%s\n' 'version: 1' 'refs:' '  OTHER_KEY: keep-me' '  ROMEO_LLM_KEY: stale-key' 'records: {}' >"$T/dsh-store/.credentials.yaml"
+DSH_HOME=$T/dsh-store run --doctor
+check "--doctor: a stored ROMEO_LLM_KEY reported" has "dsh key .*warning"
+DSH_HOME=$T/dsh-store run headless "x"
+check "stored ROMEO_LLM_KEY removed" bash -c "! grep -q ROMEO_LLM_KEY '$T/dsh-store/.credentials.yaml'"
+check "other stored keys kept" grep -q "OTHER_KEY: keep-me" "$T/dsh-store/.credentials.yaml"
+check "removal said" has "removed a ROMEO_LLM_KEY"
+
 run --doctor
 check "--doctor: all good" has "doctor: all good"
 check "--doctor: the fiche checked" has "fiche .*ok .*dsh-deepseek-v4.1-flash-1017-1m"

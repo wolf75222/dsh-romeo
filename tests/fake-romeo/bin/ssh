@@ -17,7 +17,11 @@ ctl=${sock:-$FAKE_ROMEO_STATE/ssh-master}   # the control socket is a plain file
 case $op in
   check) [ -e "$ctl" ]; exit ;;
   exit) rm -f "$ctl"; exit 0 ;;
-  forward|cancel) exit 0 ;;
+  forward)  # FAKE_FORWARD_FAIL: refused that many times (a counter file), with ssh's message
+    n=$(cat "$FAKE_ROMEO_STATE/forward-fails" 2>/dev/null || echo "${FAKE_FORWARD_FAIL:-0}")
+    if [ "$n" -gt 0 ]; then echo $((n - 1)) >"$FAKE_ROMEO_STATE/forward-fails"; echo "mux_client_forward: forwarding request failed: Port forwarding failed" >&2; exit 255; fi
+    rm -f "$FAKE_ROMEO_STATE/forward-fails"; exit 0 ;;
+  cancel) exit 0 ;;
 esac
 [ "${FAKE_ROMEO_UNREACHABLE:-0}" = 1 ] && { echo "ssh: connect to host: timed out" >&2; exit 255; }
 if [ "$master" = 1 ]; then : >"$ctl"; exit 0; fi

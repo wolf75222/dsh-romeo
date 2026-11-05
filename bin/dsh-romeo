@@ -156,8 +156,14 @@ forward() {  # $1 local port, $2 host:port, $3 file noting the forward: replaces
   previous=$(cat "$3" 2>/dev/null || true)
   [ -z "$previous" ] || mux cancel -L "$1:$previous" || true
   mux cancel -L "$1:$2" || true
-  mux forward -L "$1:$2" || return 1
+  # ssh's own reason in FORWARD_ERROR when it refuses: a busy port is only one of them.
+  FORWARD_ERROR=$(ssh -S "$CTL" -O forward -L "$1:$2" "$HOST" 2>&1 >/dev/null) || return 1
   printf '%s\n' "$2" >"$3"
+}
+
+port_holder() {  # the program listening on local port $1 ("name pid"), empty when none or no lsof
+  command -v lsof >/dev/null || return 0
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN -Fcp 2>/dev/null | awk '/^p/ { pid = substr($0, 2) } /^c/ { print substr($0, 2), pid; exit }'
 }
 
 # ---------------------------------------------------------------- ROMEO
@@ -276,8 +282,20 @@ open_tunnel() {  # 127.0.0.1:$PORT -> the gateway, kept when it already leads th
   local target=${GATEWAY#*://}
   target=${target%/v1}
   [ "$(cat "$CTL.target" 2>/dev/null)" = "$target" ] && probe_models >/dev/null 2>&1 && return 0
-  forward "$PORT" "$target" "$CTL.target" \
-    || die "cannot forward 127.0.0.1:$PORT: another program listens on it (lsof -nP -iTCP:$PORT)" "DSH_ROMEO_PORT=11328 dsh-romeo"
+  forward "$PORT" "$target" "$CTL.target" && return 0
+  # A refused forward with the port free: the SSH connection itself is in a bad state. Once more
+  # on a new connection before giving up.
+  if [ -z "$(port_holder "$PORT")" ]; then
+    disconnect
+    connect
+    forward "$PORT" "$target" "$CTL.target" && return 0
+  fi
+  local holder
+  holder=$(port_holder "$PORT")
+  if [ -n "$holder" ]; then
+    die "cannot forward 127.0.0.1:$PORT: ${holder% *} (pid ${holder#* }) listens on it" "kill ${holder#* }   (or another port: DSH_ROMEO_PORT=11328 dsh-romeo)"
+  fi
+  die "cannot forward 127.0.0.1:$PORT: ssh refused it: ${FORWARD_ERROR:-no reason given}" "dsh-romeo --stop, then dsh-romeo again"
 }
 
 # DSH_ROMEO_GATEWAY=fast: a second gateway on the login node, patched (share/gateway): no
@@ -541,10 +559,26 @@ YAML
   mv "$tmp" "$OVERLAY"
 }
 
+# dsh's credential store wins over the environment: a ROMEO_LLM_KEY saved there (in Settings, or by
+# hand) would replace the key dsh-romeo passes, and the gateway would answer "Clé API invalide ou
+# absente" once the model is up. dsh-romeo owns that name: such an entry is removed.
+clear_stored_key() {
+  local store=${DSH_HOME:-$HOME/.dsh}/.credentials.yaml
+  [ -f "$store" ] && grep -q '^[[:space:]]\{1,\}ROMEO_LLM_KEY:' "$store" || return 0
+  awk '
+    /^[^[:space:]#]/ { refs = ($0 ~ /^refs:/); skip = 0 }
+    skip && match($0, /^ */) && RLENGTH > lead { next }
+    { skip = 0 }
+    refs && /^[[:space:]]+ROMEO_LLM_KEY:/ { match($0, /^ */); lead = RLENGTH; skip = 1; next }
+    { print }' "$store" >"$store.tmp" && chmod 600 "$store.tmp" && mv "$store.tmp" "$store"
+  say "${Y}removed a ROMEO_LLM_KEY saved in dsh's credential store${N} ${D}($store): it replaced the gateway's key${N}"
+}
+
 run_dsh() {
   command -v "$DSH" >/dev/null || die "dsh is not installed" "$ROOT/install.sh   (it installs the dsh that fits your Node.js)"
   local profile=${1:-web}
   write_overlay "$profile"
+  clear_stored_key
   [ $# -gt 0 ] && shift
   export ROMEO_LLM_KEY
   exec "$DSH" "$profile" --patch "$OVERLAY" "$@"
@@ -612,6 +646,7 @@ run_desktop() {
     ! pgrep -qf "/$DESKTOP_APP.app/Contents/MacOS/" \
       || die "$DESKTOP_APP did not quit within 30 s (a dialog open?): quit it, then run dsh-romeo --desktop again"
   fi
+  clear_stored_key
   merge_desktop_patch "$patch" >"$patch.tmp"
   mv "$patch.tmp" "$patch"
   say "opening $DESKTOP_APP ${D}(the tunnel stays open until dsh-romeo --stop)${N}"
@@ -751,6 +786,9 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
   elif command -v lsof >/dev/null && v=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -Fc 2>/dev/null | sed -n 's/^c//p' | head -1) && [ -n "$v" ] && [ "$v" != ssh ]; then
     fail port "127.0.0.1:$PORT is held by $v: set DSH_ROMEO_PORT"
   else pass port "127.0.0.1:$PORT"; fi
+  if grep -q '^[[:space:]]\{1,\}ROMEO_LLM_KEY:' "${DSH_HOME:-$HOME/.dsh}/.credentials.yaml" 2>/dev/null; then
+    warn "dsh key" "a ROMEO_LLM_KEY saved in dsh's credential store replaces the gateway's: the next dsh-romeo removes it"
+  else pass "dsh key" "none saved in dsh: it takes the gateway's"; fi
   # ROMEO
   if ( connect ) 2>/dev/null; then pass ssh "$HOST"
   else
