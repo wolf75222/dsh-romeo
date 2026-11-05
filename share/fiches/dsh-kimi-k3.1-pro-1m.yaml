@@ -37,7 +37,7 @@
 # node, --stream-interval 4, Moonshot's sampling (temperature 1.0, top_p 0.95),
 # maximum reasoning by default.
 # Measured on ROMEO (2026-11-04, 16K prompts unless said): 30.5 tok/s for one
-# agent, 15.4 each for 4, 12.0 for 9, 9.4 for 16 (150 tok/s in all); 30 tok/s
+# agent, 15.4 each for 4, 12.0 for 9, 9.4 for 16 (140 tok/s in all); 30 tok/s
 # for one agent at 763K tokens (TTFT 80 s). 21.1M tokens of KV cache: 20 full
 # 1M contexts. About 5 % below K3 with the same settings (the DSA indexer).
 # Tried and left out:
