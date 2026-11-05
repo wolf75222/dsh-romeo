@@ -224,11 +224,14 @@ run --models deepseek --status
 check "models: back to deepseek" has "no model job of dsh-deepseek-v4.1-flash-1017-1m"
 
 # Voice input: a Whisper job, dsh's microphone wired to it, remembered like --models.
-run --voice on --launch headless "voice"
+DSH_ROMEO_VOICE_PORT=$PORT run --voice on --launch headless "voice"
 check "voice: a Whisper job" grep -q " dsh-whisper-large-v3-turbo " "$FAKE_ROMEO_STATE/jobs"
 check "voice: ready" has "voice input ready"
 check "voice overlay: the provider plugin" grep -q "name: $ROOT/share/speech-whisper-romeo.mjs" "$overlay"
 check "voice overlay: Whisper selected" grep -q "defaultProvider: dsh-romeo-whisper" "$overlay"
+check "voice overlay: straight to the job, not the gateway" grep -q "baseURL: http://127.0.0.1:$PORT/v1" "$overlay"
+check "voice overlay: with the job's key" grep -q "apiKeyEnv: DSH_ROMEO_WHISPER_KEY" "$overlay"
+check "voice: dsh gets the job's key" grep -q "whisper key: test-key-of-the-job-0123456789" "$FAKE_ROMEO_STATE/dsh-call"
 check "voice overlay: the microphone button" grep -q "dsh-experimental-client-ui-voice-input" "$overlay"
 check "voice overlay: no local SenseVoice" bash -c "! grep -q sensevoice '$overlay'"
 run --status

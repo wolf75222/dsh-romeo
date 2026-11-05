@@ -55,6 +55,7 @@ if [ -z "$VOICE_ENV" ] && [ -s "$VOICE_FILE" ]; then DSH_ROMEO_VOICE=$(cat "$VOI
 : "${DSH_ROMEO_FICHE:=}"                                 # a fiche of your own for the agent's model
 : "${DSH_ROMEO_TIME:=08:00:00}"                          # model job duration (max 24:00:00)
 : "${DSH_ROMEO_PORT:=11318}"                             # local end of the tunnel
+: "${DSH_ROMEO_VOICE_PORT:=11319}"                       # local end of the tunnel to the Whisper job
 : "${DSH_ROMEO_EFFORT:=max}"                             # default reasoning effort: none, low, high, max
 : "${DSH_ROMEO_SEARXNG_URL:=}"                           # SearXNG for web search, e.g. http://127.0.0.1:8888
 : "${DSH_ROMEO_GATEWAY:=standard}"                       # standard, or fast: no 100-stream cap, affinity
@@ -368,7 +369,8 @@ YAML
     - id: dsh-romeo-whisper
       name: $ROOT/share/speech-whisper-romeo.mjs
       config:
-        baseURL: http://127.0.0.1:$PORT/v1
+        baseURL: http://127.0.0.1:$DSH_ROMEO_VOICE_PORT/v1
+        apiKeyEnv: DSH_ROMEO_WHISPER_KEY
         model: $VOICE_MODEL
 YAML
 }
@@ -493,7 +495,7 @@ run_desktop() {
     for _ in $(seq 1 30); do pgrep -qf "/$DESKTOP_APP.app/Contents/MacOS/" || break; sleep 1; done
   fi
   say "opening $DESKTOP_APP ${D}(the tunnel stays open until dsh-romeo --stop)${N}"
-  open -a "$DESKTOP_APP" --env "ROMEO_LLM_KEY=$ROMEO_LLM_KEY"
+  open -a "$DESKTOP_APP" --env "ROMEO_LLM_KEY=$ROMEO_LLM_KEY" ${DSH_ROMEO_WHISPER_KEY:+--env "DSH_ROMEO_WHISPER_KEY=$DSH_ROMEO_WHISPER_KEY"}
 }
 
 # ---------------------------------------------------------------- other clients
@@ -628,7 +630,7 @@ cmd_stop() {
     rsh "pkill -u \$USER -f '$FAST_PATTERN'" && say "fast gateway stopped"
   fi
   disconnect
-  rm -f "$CTL.target"
+  rm -f "$CTL.target" "$CTL.voice"
   say "tunnel closed ${D}(romeollmtool's gateway keeps running; it stops by itself)${N}"
 }
 
@@ -659,10 +661,38 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
   fi
   say "$LABEL ${G}ready${N} ${D}($MODEL, http://127.0.0.1:$PORT/v1)${N}"
   [ -z "$SUB_MODEL" ] || say "$SUB_LABEL ${G}ready${N} for the subagents ${D}($SUB_MODEL)${N}"
-  if [ -n "$VOICE_MODEL" ]; then  # dsh does not wait for it: the microphone works once it is up
-    if probe_models 2>/dev/null | grep -q "\"$VOICE_MODEL\""; then say "voice input ${G}ready${N} ${D}(Whisper on ROMEO)${N}"
-    elif [ -n "$(jobs_of_fiche "$VOICE_FICHE")" ]; then say "voice input ${Y}loading${N} ${D}(Whisper on ROMEO, a few minutes)${N}"
+  [ -z "$VOICE_MODEL" ] || open_voice_tunnel
+}
+
+# Voice input goes straight to the Whisper job: romeollmtool's gateway cannot relay audio uploads
+# (multipart /v1/audio/transcriptions: its python-multipart is missing). A second forward of the same
+# SSH connection, 127.0.0.1:$DSH_ROMEO_VOICE_PORT -> the job, with the job's own key in
+# DSH_ROMEO_WHISPER_KEY. dsh does not wait for Whisper: the microphone works once it is up.
+open_voice_tunnel() {
+  local job ep target
+  job=$(jobs_of_fiche "$VOICE_FICHE" | awk '$2 == "RUNNING" { print $1; exit }')
+  if [ -z "$job" ]; then
+    if [ -n "$(jobs_of_fiche "$VOICE_FICHE")" ]; then say "voice input ${Y}waiting for its GPU${N} ${D}(run dsh-romeo again once it runs)${N}"
     else say "voice input ${Y}off${N}: no Whisper job ${D}(dsh-romeo --launch)${N}"; fi
+    return 0
+  fi
+  ep=$(rlt endpoint "$job" --show-key 2>/dev/null) || true
+  target=$(printf '%s\n' "$ep" | grep direct | grep -oE 'https?://[A-Za-z0-9.-]+:[0-9]+' | head -1)
+  DSH_ROMEO_WHISPER_KEY=$(printf '%s\n' "$ep" | sed -n '/clé interne/,$p' | grep -oE '[A-Za-z0-9_-]{24,}' | tail -1)
+  if [ -z "$target" ] || [ -z "$DSH_ROMEO_WHISPER_KEY" ]; then
+    say "voice input ${Y}unavailable${N}: cannot read the endpoint of Whisper job $job"
+    return 0
+  fi
+  target=${target#*://}
+  ssh -S "$CTL" -O cancel -L "$DSH_ROMEO_VOICE_PORT:$(cat "$CTL.voice" 2>/dev/null || echo "$target")" "$HOST" 2>/dev/null || true
+  ssh -S "$CTL" -O forward -L "$DSH_ROMEO_VOICE_PORT:$target" "$HOST" 2>/dev/null \
+    || { say "voice input ${Y}unavailable${N}: cannot forward 127.0.0.1:$DSH_ROMEO_VOICE_PORT (set DSH_ROMEO_VOICE_PORT)"; return 0; }
+  printf '%s\n' "$target" >"$CTL.voice"
+  export DSH_ROMEO_WHISPER_KEY
+  if curl -sf -m 10 "http://127.0.0.1:$DSH_ROMEO_VOICE_PORT/v1/models" -H "Authorization: Bearer $DSH_ROMEO_WHISPER_KEY" | grep -q "\"$VOICE_MODEL\""; then
+    say "voice input ${G}ready${N} ${D}(Whisper on ROMEO, job $job)${N}"
+  else
+    say "voice input ${Y}loading${N} ${D}(Whisper job $job, a few minutes; the microphone works once it is up)${N}"
   fi
 }
 

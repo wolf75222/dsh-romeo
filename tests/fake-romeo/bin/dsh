@@ -21,4 +21,4 @@ if [ "${1:-}" = plugin ] && [ "${4:-}" = add ]; then
     fs.writeFileSync(file, JSON.stringify(d))' "$dir/package.json" "$name" "${spec##*@}"
   exit 0
 fi
-{ echo "args: $*"; echo "key: ${ROMEO_LLM_KEY:-}"; } >"$FAKE_ROMEO_STATE/dsh-call"
+{ echo "args: $*"; echo "key: ${ROMEO_LLM_KEY:-}"; echo "whisper key: ${DSH_ROMEO_WHISPER_KEY:-}"; } >"$FAKE_ROMEO_STATE/dsh-call"

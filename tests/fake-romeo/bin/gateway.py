@@ -29,7 +29,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def authorized(self):
-        if self.headers.get("Authorization") != "Bearer test-key":
+        if self.headers.get("Authorization") not in ("Bearer test-key", "Bearer test-key-of-the-job-0123456789"):
             self.reply(401, {"error": "bad key"})
             return False
         return True

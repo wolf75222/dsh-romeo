@@ -17,6 +17,11 @@ case "$1 ${2:-}" in
     id=$((900000 + $(wc -l <"$S/jobs" 2>/dev/null || echo 0) + 1))
     echo "$id $2 $(date +%s)" >>"$S/jobs"
     echo "Job $id soumis ($2)" ;;
+  "endpoint "*)  # like romeollmtool's: the job's direct URL (here the fake gateway) and its own key
+    echo "Job $2 — modèle « $(awk -v j="$2" '$1 == j { print $2 }' "$S/jobs") »"
+    echo "  gateway : http://romeo1.example:${FAKE_GATEWAY_PORT}/v1  (clé : romeollmtool gateway show-key)"
+    echo "  direct  : http://127.0.0.1:${FAKE_GATEWAY_PORT}/v1  (débogage, clé interne du job)"
+    echo "  clé interne : test-key-of-the-job-0123456789" ;;
   "stop "*) grep -v "^$2 " "$S/jobs" >"$S/jobs.new"; mv "$S/jobs.new" "$S/jobs" ;;
   "version "*|"version") echo "romeollmtool 0.0-test" ;;
   *) echo "fake romeollmtool: $*" >&2; exit 2 ;;

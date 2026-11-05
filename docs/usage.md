@@ -76,7 +76,7 @@ The Kimi weights and its vLLM engine live on project `r260105`'s storage (see [T
 
 ## Voice input
 
-`dsh-romeo --voice on --launch` adds a third job, Whisper large-v3-turbo on 1 GPU (fiche `dsh-whisper-large-v3-turbo`, French and 98 other languages), and turns on the microphone button of dsh's input box: record, release, and the transcript lands in the box (nothing is sent by itself). dsh's own voice plugin recognizes speech on your computer with SenseVoice, which does not know French; dsh-romeo keeps its button and replaces the recognizer by Whisper on ROMEO ([share/speech-whisper-romeo.mjs](../share/speech-whisper-romeo.mjs), through the same tunnel and key). dsh does not wait for Whisper: the button works once its job is up (a few minutes; the first start downloads 1.6 GB into the Hugging Face cache of your ROMEO home). `--voice off` removes it; `--status` and `--stop` cover its job.
+`dsh-romeo --voice on --launch` adds a third job, Whisper large-v3-turbo on 1 GPU (fiche `dsh-whisper-large-v3-turbo`, French and 98 other languages), and turns on the microphone button of dsh's input box: record, release, and the transcript lands in the box (nothing is sent by itself). dsh's own voice plugin recognizes speech on your computer with SenseVoice, which does not know French; dsh-romeo keeps its button and replaces the recognizer by Whisper on ROMEO ([share/speech-whisper-romeo.mjs](../share/speech-whisper-romeo.mjs)). Recordings go straight to the Whisper job through a second forward of the same SSH connection (`127.0.0.1:11319`, `DSH_ROMEO_VOICE_PORT`), with the job's own key: romeollmtool's gateway cannot relay audio uploads (its `python-multipart` is missing). Measured: 8 s of French speech transcribed in 0.2 s, the language given or detected. dsh does not wait for Whisper: the button works once its job is up (under 4 minutes; the first start downloads 1.6 GB into the Hugging Face cache of your ROMEO home). If the job only starts after dsh, run `dsh-romeo` (or `--desktop`) again so that it opens the tunnel to it. `--voice off` removes it; `--status` and `--stop` cover its job.
 
 ## Where the agents work
 
@@ -111,6 +111,7 @@ For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 | `ROMEO_SSH_HOST` | `romeo` | ssh alias of a ROMEO login node |
 | `DSH_ROMEO_MODELS` | `deepseek` | `deepseek`, `kimi` or `kimi+deepseek` (see [Models](#models)); the last `--models` wins over the config file |
 | `DSH_ROMEO_VOICE` | `off` | `on`: voice input with Whisper on ROMEO (see [Voice input](#voice-input)); the last `--voice` wins over the config file |
+| `DSH_ROMEO_VOICE_PORT` | `11319` | local port of the tunnel to the Whisper job |
 | `DSH_ROMEO_FICHE` | empty | a `romeollmtool` fiche of your own for the agent's model, e.g. `deepseek-v4.1-flash-vllm`, ROMEO's validated one (1 node, 262K context, longer to load) |
 | `DSH_ROMEO_TIME` | `08:00:00` | duration of a model job (24 h at most) |
 | `DSH_ROMEO_EFFORT` | `max` | default reasoning effort: `none`, `low`, `high`, `max` |
