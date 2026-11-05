@@ -23,6 +23,7 @@ case "$1 ${2:-}" in
     echo "  direct  : http://127.0.0.1:${FAKE_GATEWAY_PORT}/v1  (débogage, clé interne du job)"
     echo "  clé interne : test-key-of-the-job-0123456789" ;;
   "stop "*) grep -v "^$2 " "$S/jobs" >"$S/jobs.new"; mv "$S/jobs.new" "$S/jobs" ;;
+  "logs "*) echo "log line of job ${*: -1}" ;;
   "version "*|"version") echo "romeollmtool 0.0-test" ;;
   *) echo "fake romeollmtool: $*" >&2; exit 2 ;;
 esac

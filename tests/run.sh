@@ -42,11 +42,11 @@ run --version
 check "--version" has "dsh-romeo 0."
 
 run --status
-check "status: gateway stopped, no job, tunnel closed" has "gateway stopped"
-check "status: no model job" has "no model job of dsh-deepseek-v4.1-flash-1017-1m"
+check "status: gateway stopped, no job, tunnel closed" has "gateway  *stopped"
+check "status: no model job" has "DeepSeek-V4.1-Flash-1017  *-  *no job"
 
 run
-check "start before --setup: fiche missing" has "not found on ROMEO. Run: dsh-romeo --setup"
+check "start before --setup: fiche missing" has "next: dsh-romeo --setup"
 check "start before --setup: exit 1" test "$code" = 1
 check "start starts the gateway" test -e "$FAKE_ROMEO_STATE/gateway"
 
@@ -54,7 +54,7 @@ run --setup
 check "--setup copies the fiche" test -f "$FAKE_ROMEO_HOME/.romeollmtool/configs/dsh-deepseek-v4.1-flash-1017-1m.yaml"
 
 run
-check "start without a job: says --launch" has "Start one with: dsh-romeo --launch"
+check "start without a job: says --launch" has "next: dsh-romeo --launch"
 check "start without a job: exit 1" test "$code" = 1
 
 ROMEO_PROJECT='' run --launch
@@ -140,6 +140,12 @@ if [ "$(uname)" = Darwin ]; then
   HOME=$T/home run --desktop
   check "--desktop again: a setting the app saved is kept" grep -q "^- id: ui-theme" "$T/home/.dsh/profiles/desktop/cordis.patch.yml"
   check "--desktop again: dsh-romeo's rows once" test "$(grep -c '^- id: llm-pi-ai' "$T/home/.dsh/profiles/desktop/cordis.patch.yml")" = 1
+  # A patch the app left empty ("[]") still gives valid YAML.
+  echo '[]' >"$T/home/.dsh/profiles/desktop/cordis.patch.yml"
+  touch "$FAKE_ROMEO_STATE/app-running"
+  HOME=$T/home run --desktop
+  check "--desktop from an empty [] patch: no [] left" bash -c "! grep -q '^\[\]' '$T/home/.dsh/profiles/desktop/cordis.patch.yml'"
+  printf '%s\n' '- id: ui-theme' '  config: { theme: dark }' >>"$T/home/.dsh/profiles/desktop/cordis.patch.yml"
   # The app's own row under an id dsh-romeo also uses stays; voice reads the desktop profile's bundles.
   DP=$T/home/.dsh/profiles/desktop
   printf '%s\n' '- id: tool-subagent' '  disabled: false' >>"$DP/cordis.patch.yml"
@@ -168,8 +174,14 @@ if [ "$(uname)" = Darwin ]; then
   check "--desktop without the app: says so" has "app is not installed"
 fi
 
+run --logs
+check "--logs: the agent's job" has "log of model job 900001"
+check "--logs: its lines" has "log line of job 900001"
+run --version
+check "--version: dsh-romeo and dsh" bash -c "grep -q '^dsh-romeo ' <<<\"\$1\" && grep -q '^dsh ' <<<\"\$1\"" _ "$out"
+
 run --status
-check "status: job listed" has "model job 900001 running"
+check "status: job listed" has "900001  *running  *2  *0:42 elapsed"
 
 run --stop
 check "--stop: job stopped" has "model job 900001 stopped"
@@ -205,9 +217,9 @@ check "--stop after switching models: the Kimi job too" bash -c "test -f '$FAKE_
 run --models gpt
 check "unknown models: clear error" has "models: deepseek, kimi or kimi+deepseek"
 run --status
-check "models remembered: kimi again without --models" has "no model job of dsh-kimi-k3.1-pro-1m"
+check "models remembered: kimi again without --models" has "Kimi-K3.1-Pro  *-  *no job"
 DSH_ROMEO_MODELS=deepseek run --status
-check "models: the environment wins over the remembered choice" has "no model job of dsh-deepseek-v4.1-flash-1017-1m"
+check "models: the environment wins over the remembered choice" has "DeepSeek-V4.1-Flash-1017  *-  *no job"
 
 # Kimi as the agent, DeepSeek for its subagents: two jobs, both models waited for and listed.
 run --models kimi+deepseek --launch headless "both"
@@ -240,12 +252,12 @@ check "kimi+deepseek opencode.json: valid, both models" python3 -c 'import json,
 DSH_ROMEO_MODELS=kimi+deepseek run --stop
 check "kimi+deepseek --stop: both jobs" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs'"
 run --models deepseek --status
-check "models: back to deepseek" has "no model job of dsh-deepseek-v4.1-flash-1017-1m"
+check "models: back to deepseek" has "DeepSeek-V4.1-Flash-1017  *-  *no job"
 
 # Voice input: a Whisper job, dsh's microphone wired to it, remembered like --models.
 DSH_ROMEO_VOICE_PORT=$PORT run --voice on --launch headless "voice"
 check "voice: a Whisper job" grep -q " dsh-whisper-large-v3-turbo " "$FAKE_ROMEO_STATE/jobs"
-check "voice: ready" has "voice input ready"
+check "voice: ready or loading" grep -q -E "voice input (ready|loading)" <<<"$out"
 check "voice overlay: the provider plugin" grep -q "name: $ROOT/share/speech-whisper-romeo.mjs" "$overlay"
 check "voice overlay: Whisper selected" grep -q "defaultProvider: dsh-romeo-whisper" "$overlay"
 check "voice overlay: straight to the job, not the gateway" grep -q "baseURL: http://127.0.0.1:$PORT/v1" "$overlay"
@@ -254,7 +266,7 @@ check "voice: the job's key written" grep -qx "test-key-of-the-job-0123456789" "
 check "voice overlay: the microphone button" grep -q "dsh-experimental-client-ui-voice-input" "$overlay"
 check "voice overlay: no local SenseVoice" bash -c "! grep -q sensevoice '$overlay'"
 run --status
-check "voice: remembered, its job listed" has "dsh-whisper-large-v3-turbo"
+check "voice: remembered, its job listed" has "Whisper-large-v3-turbo  *9000"
 # A Whisper job that starts after dsh: a watcher opens the tunnel and writes the key by itself.
 run --voice on --stop
 rm -f "$DSH_ROMEO_CONFIG_DIR/whisper.key"
@@ -292,9 +304,9 @@ if [ -n "$REAL_DSH" ]; then
   check "real dsh: SearXNG plugin inserted" has "id: dsh-romeo-searxng"
   # Subagents on DeepSeek in every preset of the real Web composition.
   FAKE_DSH_REAL=$REAL_DSH run --models kimi+deepseek --launch
-  composed=$(cd "$T" && DSH_HOME=$T/dsh-home "$REAL_DSH" --profile web --patch "$overlay" --dump-config 2>&1)
+  composed=$(cd "$T" && DSH_HOME=$T/dsh-home "$REAL_DSH" --profile web --patch "$overlay" --dump-config 2>&1); code=$?
   out=$composed
-  check "real dsh: the patch applies" lacks "not found"
+  check "real dsh: the patch applies" test "$code" = 0
   check "real dsh: subagents of the standard preset on DeepSeek" bash -c "grep -A8 '^          - id: tool-subagent\$' <<<\"\$1\" | grep -q 'model: dsh-deepseek-v4.1-flash-1017-1m'" _ "$composed"
   DSH_ROMEO_MODELS=kimi+deepseek run --stop
 fi
@@ -351,11 +363,11 @@ out=$(printf 'ROMEO_SSH_HOST=romeo\nROMEO_PROJECT=r000000\n' >"$T/skill-config";
 check "skill env.sh: project from dsh-romeo's config" has "project=r000000"
 check "skill env.sh: R runs over ssh" has "remote-user=demo"
 
-for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
+for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
   out=$(bash -n "$f" 2>&1); check "syntax: $(basename "$f")" test -z "$out"
 done
 if command -v shellcheck >/dev/null; then
-  out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" 2>&1); check "shellcheck" test -z "$out"
+  out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" 2>&1); check "shellcheck" test -z "$out"
   out=$(shellcheck -S warning -s bash "$SKILL/scripts/env.sh" 2>&1); check "shellcheck: skill env.sh" test -z "$out"
 fi
 

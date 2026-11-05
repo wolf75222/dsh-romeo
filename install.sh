@@ -46,10 +46,8 @@ ask() {  # ask "question" default -> answer (the default without a terminal or w
 # Settings of a previous install are kept unless given again.
 # shellcheck source=/dev/null
 [ -f "$CONFIG_DIR/config" ] && . "$CONFIG_DIR/config"
-# The September weights' fiche, the default before 2026-10-28: move to the 1017 one.
-[ "${DSH_ROMEO_FICHE:-}" = dsh-deepseek-v4.1-flash-1m ] && DSH_ROMEO_FICHE=dsh-deepseek-v4.1-flash-1017-1m
-# The 1017 fiche, the default before the choice of models (2026-11-04): DSH_ROMEO_MODELS says it now.
-[ "${DSH_ROMEO_FICHE:-}" = dsh-deepseek-v4.1-flash-1017-1m ] && DSH_ROMEO_FICHE=
+# Old defaults (September weights, then 1017 before --models): DSH_ROMEO_MODELS says it now.
+case ${DSH_ROMEO_FICHE:-} in dsh-deepseek-v4.1-flash-1m | dsh-deepseek-v4.1-flash-1017-1m) DSH_ROMEO_FICHE= ;; esac
 HOST=${HOST:-${ROMEO_SSH_HOST:-romeo}}
 PROJECT=${PROJECT:-${ROMEO_PROJECT:-}}
 
@@ -64,8 +62,8 @@ fi
 step "Tools on this computer"
 for tool in ssh curl; do command -v $tool >/dev/null || die "$tool is missing"; done
 command -v node >/dev/null || die "Node.js 20 or later is needed for dsh: https://nodejs.org (or: brew install node)"
-node_major=$(node -p 'process.versions.node.split(".")[0]')
-[ "$node_major" -ge 20 ] || die "Node.js $node_major is too old for dsh: install Node.js 20 or later"
+node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 20 || (a == 20 && b >= 3) ? 0 : 1)' \
+  || die "Node.js $(node --version) is too old for dsh: install Node.js 20.3 or later"
 ok "ssh, curl, Node.js $(node --version)"
 
 if command -v dsh >/dev/null; then
@@ -126,6 +124,8 @@ step "Settings: $CONFIG_DIR/config"
 mkdir -p "$CONFIG_DIR"
 SEARX=${DSH_ROMEO_SEARXNG_URL:-}
 [ "$SEARCH" = 1 ] && SEARX=http://127.0.0.1:8888
+# Settings other than the ones written below (docs/usage.md lists them) are kept as they are.
+extra=$(grep -v -E '^(#|[[:space:]]*$|(ROMEO_SSH_HOST|ROMEO_PROJECT|DSH_ROMEO_(MODELS|FICHE|TIME|PORT|EFFORT|SEARXNG_URL|GATEWAY))=)' "$CONFIG_DIR/config" 2>/dev/null || true)
 cat >"$CONFIG_DIR/config" <<EOF
 # dsh-romeo settings (sourced by bin/dsh-romeo). A variable set in the environment wins.
 ROMEO_SSH_HOST=\${ROMEO_SSH_HOST:-$HOST}
@@ -140,12 +140,14 @@ DSH_ROMEO_FICHE=\${DSH_ROMEO_FICHE:-${DSH_ROMEO_FICHE:-}}
 DSH_ROMEO_TIME=\${DSH_ROMEO_TIME:-${DSH_ROMEO_TIME:-08:00:00}}
 # Local port of the tunnel to the gateway.
 DSH_ROMEO_PORT=\${DSH_ROMEO_PORT:-${DSH_ROMEO_PORT:-11318}}
-# Default reasoning effort: none, low, high or max.
+# Default reasoning effort: off, low, high or max.
 DSH_ROMEO_EFFORT=\${DSH_ROMEO_EFFORT:-${DSH_ROMEO_EFFORT:-max}}
 # SearXNG for web search (empty: no web search). install.sh --search runs one in Docker.
 DSH_ROMEO_SEARXNG_URL=\${DSH_ROMEO_SEARXNG_URL:-$SEARX}
 # Gateway: standard (romeollmtool's), or fast (no 100-stream cap, affinity across jobs: docs/tuning.md).
 DSH_ROMEO_GATEWAY=\${DSH_ROMEO_GATEWAY:-${DSH_ROMEO_GATEWAY:-standard}}
+${extra:+# Your other settings, kept.
+$extra}
 EOF
 ok "written"
 

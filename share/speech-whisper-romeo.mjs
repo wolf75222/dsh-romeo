@@ -15,7 +15,7 @@ export const inject = ['speechToText']
 
 const DEFAULTS = {
   providerId: 'dsh-romeo-whisper',
-  baseURL: 'http://127.0.0.1:11318/v1',
+  baseURL: 'http://127.0.0.1:11319/v1',
   apiKeyEnv: 'ROMEO_LLM_KEY',
   apiKeyFile: '',
   model: 'dsh-whisper-large-v3-turbo',

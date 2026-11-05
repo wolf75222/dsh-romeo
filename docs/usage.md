@@ -10,7 +10,7 @@ On your computer (macOS or Linux), once `ssh romeo` logs you into ROMEO without 
 git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/install.sh
 ```
 
-`install.sh` installs dsh if it is missing (`npm install -g @deepseek-ai/dsh@next`, 0.2.2, with Node.js 24.9 or later; `@latest`, 0.2.1, with Node.js 20 to 24.8), asks which ROMEO project pays for the model jobs, links `dsh-romeo` in `~/.local/bin` and copies the model's fiche to `~/.romeollmtool/configs` on ROMEO. Run it again after `git pull`: it keeps your settings.
+`install.sh` installs dsh if it is missing (`npm install -g @deepseek-ai/dsh@next`, 0.2.2, with Node.js 24.9 or later; `@latest`, 0.2.1, with Node.js 20 to 24.8), asks which ROMEO project pays for the model jobs, links `dsh-romeo` in `~/.local/bin` and copies the models' fiches to `~/.romeollmtool/configs` on ROMEO. Run it again after `git pull`: it keeps your settings.
 
 | Option | |
 |---|---|
@@ -52,13 +52,15 @@ Host romeo
 | `dsh-romeo --run CMD [ARGS]` | another client instead of dsh: see [Other clients](clients.md) |
 | `dsh-romeo --serve` | only the model and the tunnel, then it prints the endpoint and returns |
 | `eval "$(dsh-romeo --env)"` | the endpoint and the key as variables of this shell |
-| `dsh-romeo --status` | the gateway, the model jobs, the tunnel |
-| `dsh-romeo --stop` | stops the model jobs and closes the tunnel |
+| `dsh-romeo --status` | the gateway, the tunnel, and a table of the model jobs: state, nodes, time left, or Slurm's estimated start while queued |
+| `dsh-romeo --stop` | cancels every dsh-romeo model job (also of an earlier `--models`) and closes the tunnel |
+| `dsh-romeo --logs [-f]` | the last 40 lines of the agent's model job log (`-f` follows it) |
+| `dsh-romeo --version`, `--help` | `-V`, `-h`: the versions of dsh-romeo, dsh, the app's dsh and Node.js |
 | `dsh-romeo --setup` | copies the models' fiches to ROMEO again |
 | `dsh-romeo --models kimi ...` | the models, kept for the next runs (see below); options go in any order |
 | `dsh-romeo --voice on --launch` | voice input: dsh's microphone button, transcribed by Whisper on ROMEO (see below); kept for the next runs |
 
-`--launch` combines with the others, in any order with `--models`, `--serve`, `--env` and `--desktop`: `dsh-romeo --desktop --launch`, `dsh-romeo --launch --run opencode` (before `--run`, whose arguments are the client's). While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
+`--launch [N]` (1 to 8 jobs; Kimi: 1) combines with the others, in any order with `--models`, `--voice`, `--serve`, `--env` and `--desktop`: `dsh-romeo --desktop --launch`, `dsh-romeo --launch --run opencode` (before `--run`, whose arguments are the client's). While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
 
 ## Models
 
@@ -105,7 +107,7 @@ For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 
 ## Settings
 
-`install.sh` writes most of them to `~/.config/dsh-romeo/config`; a variable set in the environment wins. `--models` and `--voice` are remembered in `~/.config/dsh-romeo/models` and `voice`. Rarely needed: `DSH_ROMEO_POLL` (seconds between checks while a model loads), `DSH_ROMEO_SOCKET` (the SSH control socket), `DSH_ROMEO_DSH`, `DSH_ROMEO_DESKTOP_APP`, `DSH_ROMEO_DESKTOP_DSH` (which dsh and app to use), `DSH_ROMEO_CONFIG_DIR`, `ROMEOLLMTOOL`.
+`install.sh` writes most of them to `~/.config/dsh-romeo/config`; a variable set in the environment wins. `--models` and `--voice` are remembered in `~/.config/dsh-romeo/models` and `voice`. Rarely needed: `DSH_ROMEO_POLL` (seconds between checks while a model loads, or while the voice watcher waits for the Whisper job), `DSH_ROMEO_NOTIFY=off` (no bell or desktop notification when a model is ready after a wait of `DSH_ROMEO_NOTIFY_AFTER`, 60 s), `NO_COLOR` (no colors), `DSH_ROMEO_SOCKET` (the SSH control socket), `DSH_ROMEO_DSH`, `DSH_ROMEO_DESKTOP_APP`, `DSH_ROMEO_DESKTOP_DSH` (which dsh and app to use), `DSH_ROMEO_CONFIG_DIR`, `ROMEOLLMTOOL`.
 
 | Variable | Default | |
 |---|---|---|
@@ -116,7 +118,7 @@ For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 | `DSH_ROMEO_VOICE_PORT` | `11319` | local port of the tunnel to the Whisper job |
 | `DSH_ROMEO_FICHE` | empty | a `romeollmtool` fiche of your own for the agent's model, e.g. `deepseek-v4.1-flash-vllm`, ROMEO's validated one (1 node, 262K context, longer to load) |
 | `DSH_ROMEO_TIME` | `08:00:00` | duration of a model job (24 h at most) |
-| `DSH_ROMEO_EFFORT` | `max` | default reasoning effort: `none`, `low`, `high`, `max` |
+| `DSH_ROMEO_EFFORT` | `max` | default reasoning effort: `off`, `low`, `high`, `max` |
 | `DSH_ROMEO_PORT` | `11318` | local port of the tunnel |
 | `DSH_ROMEO_SEARXNG_URL` | empty | SearXNG for web search, e.g. `http://127.0.0.1:8888` |
 | `DSH_ROMEO_GATEWAY` | `standard` | `fast`: the patched gateway (see [Tuning](tuning.md)) |

@@ -30,4 +30,4 @@ if [ "${1:-}" = plugin ] && [ "${4:-}" = add ]; then
       JSON.stringify({ name, version, ...(range ? { dsh: { engines: { dsh: range } } } : {}) }))' "$dir" "$name" "$version" "$range"
   exit 0
 fi
-{ echo "args: $*"; echo "key: ${ROMEO_LLM_KEY:-}"; echo "whisper key: ${DSH_ROMEO_WHISPER_KEY:-}"; } >"$FAKE_ROMEO_STATE/dsh-call"
+{ echo "args: $*"; echo "key: ${ROMEO_LLM_KEY:-}"; } >"$FAKE_ROMEO_STATE/dsh-call"

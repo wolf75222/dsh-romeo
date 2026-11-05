@@ -13,7 +13,7 @@ else
   [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo/config" ] && . "${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo/config"
   ROMEO_SSH_HOST=${ROMEO_SSH_HOST:-romeo}
   # dsh-romeo's shared connection when it is open, a normal one otherwise.
-  ROMEO_CTL=$HOME/.ssh/dsh-romeo-$ROMEO_SSH_HOST.sock
+  ROMEO_CTL=${DSH_ROMEO_SOCKET:-$HOME/.ssh/dsh-romeo-$ROMEO_SSH_HOST.sock}
   RSYNC_SSH="ssh -o BatchMode=yes -o LogLevel=ERROR -o ControlPath=$ROMEO_CTL"   # for rsync -e
   R() { ssh -n -o BatchMode=yes -o LogLevel=ERROR -o ConnectTimeout=20 -o ControlPath="$ROMEO_CTL" "$ROMEO_SSH_HOST" "$1"; }
 fi

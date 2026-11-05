@@ -37,7 +37,8 @@ The tunnel stays open until `dsh-romeo --stop`. After your computer slept, run `
 |---|---|
 | `OPENAI_BASE_URL`, `OPENAI_API_BASE`, `DSH_ROMEO_BASE_URL` | `http://127.0.0.1:11318/v1` |
 | `OPENAI_API_KEY`, `ROMEO_LLM_KEY`, `ANTHROPIC_AUTH_TOKEN` | the gateway's key |
-| `DSH_ROMEO_MODEL`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL` | the served model, `dsh-deepseek-v4.1-flash-1017-1m` |
+| `DSH_ROMEO_MODEL`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_{OPUS,SONNET}_MODEL` | the agent's served model, e.g. `dsh-deepseek-v4.1-flash-1017-1m` or `dsh-kimi-k3.1-pro-1m` |
+| `DSH_ROMEO_SUB_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL` | the subagents' model (DeepSeek with `kimi+deepseek`, else the agent's) |
 | `ANTHROPIC_BASE_URL` | `http://127.0.0.1:11318` |
 | `AIDER_MODEL` | `openai/dsh-deepseek-v4.1-flash-1017-1m` |
 | `OPENCODE_CONFIG` | `~/.config/dsh-romeo/opencode.json` |

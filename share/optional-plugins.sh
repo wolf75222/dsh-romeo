@@ -73,12 +73,14 @@ while read -r spec what; do
     was_on=0
     selected "$name" && was_on=1
     old=$(version_of "$name")
+    state=off
+    [ "$was_on" = 1 ] && state=on
     if add "$name@latest"; then
       [ "$was_on" = 1 ] || turn_off "$name"   # dsh plugin add selects it: back off as it was
       if fits "$name"; then
-        echo "$name: $old does not fit dsh $DSH_VERSION, moved to $(version_of "$name") ($([ "$was_on" = 1 ] && echo on || echo off); newer than the version reviewed for dsh-romeo)"
+        echo "$name: $old does not fit dsh $DSH_VERSION, moved to $(version_of "$name") ($state; newer than the version reviewed for dsh-romeo)"
       else
-        echo "$name: $old does not fit dsh $DSH_VERSION, nor does its latest version $(version_of "$name") (installed, $([ "$was_on" = 1 ] && echo on || echo off))"
+        echo "$name: $old does not fit dsh $DSH_VERSION, nor does its latest version $(version_of "$name") (installed, $state)"
         status=1
       fi
     else

@@ -642,8 +642,7 @@ def _apply_gateway_patches():
 
     if affinity_ok:
         Router.pick = _pick
-        Router.mark_down = _mark_down
-    elif timeouts:
+    if affinity_ok or timeouts:
         Router.mark_down = _mark_down
     if fast_ok:
         gw_app.json = _JsonShim()

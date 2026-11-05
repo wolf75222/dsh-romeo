@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fake squeue: understands -n NAME; prints "id state elapsed left reason".
+# Fake squeue: understands -n NAME; prints "id state elapsed left nodes start reason".
 name=''
 while [ $# -gt 0 ]; do case $1 in -n) name=$2; shift 2 ;; *) shift ;; esac; done
 [ -f "$FAKE_ROMEO_STATE/jobs" ] || exit 0
@@ -7,5 +7,6 @@ while read -r id fiche _; do
   state=RUNNING reason=None
   # FAKE_ROMEO_STATE/pending lists the fiches whose jobs wait for GPUs.
   grep -qx "$fiche" "$FAKE_ROMEO_STATE/pending" 2>/dev/null && state=PENDING reason=Resources
-  [ -z "$name" ] || [ "$name" = "romeollmtool-$fiche" ] && echo "$id $state 0:42 7:59:18 $reason"
+  start=N/A; [ "$state" = PENDING ] && start=${FAKE_START:-N/A}
+  [ -z "$name" ] || [ "$name" = "romeollmtool-$fiche" ] && echo "$id $state 0:42 7:59:18 2 $start $reason"
 done <"$FAKE_ROMEO_STATE/jobs"
