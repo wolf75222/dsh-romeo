@@ -6,6 +6,7 @@
 #   ./install.sh --host romeo          the ssh alias of ROMEO (default: romeo)
 #   ./install.sh --bin-dir DIR         where to link the dsh-romeo command (default: ~/.local/bin)
 #   ./install.sh --search              also run SearXNG in Docker for web search (127.0.0.1:8888)
+#   ./install.sh --no-plugins          skip the optional dsh plugins (share/plugins.txt)
 #   ./install.sh --yes                 no questions: install dsh with npm if it is missing
 #
 # Run it again after `git pull`: it keeps your settings.
@@ -14,7 +15,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")" && pwd)
 CONFIG_DIR=${DSH_ROMEO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo}
 BIN_DIR=$HOME/.local/bin
-HOST='' PROJECT='' SEARCH=0 YES=0
+HOST='' PROJECT='' SEARCH=0 YES=0 PLUGINS=1
 RLT_DEFAULT=/apps/romeotools/romeollmtool/romeollmtool
 
 while [ $# -gt 0 ]; do
@@ -23,8 +24,9 @@ while [ $# -gt 0 ]; do
     --host) HOST=$2; shift 2 ;;
     --bin-dir) BIN_DIR=$2; shift 2 ;;
     --search) SEARCH=1; shift ;;
+    --no-plugins) PLUGINS=0; shift ;;
     --yes|-y) YES=1; shift ;;
-    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -177,6 +179,21 @@ fi
 
 step "Model fiche on ROMEO"
 DSH_ROMEO_CONFIG_DIR=$CONFIG_DIR "$ROOT/bin/dsh-romeo" --setup | sed 's/^/    /'
+
+# ---------------------------------------------------------------- optional dsh plugins
+
+# Installed off in the dsh profiles that dsh-romeo opens (web, and the desktop app's): turn them on
+# in the Plugins page. The app manages its profile with its own dsh, of its own version.
+if [ "$PLUGINS" = 1 ]; then
+  step "Optional dsh plugins (off; turn them on in dsh's Plugins page)"
+  "$ROOT/share/optional-plugins.sh" web dsh | sed 's/^/    web: /' \
+    || printf '%s\n' "    ${R}warning:${N} some plugins were not installed in the web profile"
+  APP_DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
+  if [ -x "$APP_DSH" ]; then
+    "$ROOT/share/optional-plugins.sh" desktop "$APP_DSH" | sed 's/^/    desktop app: /' \
+      || printf '%s\n' "    ${R}warning:${N} some plugins were not installed in the desktop app's profile"
+  fi
+fi
 
 # ---------------------------------------------------------------- web search (optional)
 

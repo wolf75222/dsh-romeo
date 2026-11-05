@@ -25,6 +25,7 @@ Files:
 | `install.sh` | the installer |
 | `share/fiches/` | the models' fiches for `romeollmtool` |
 | `share/gateway/` | the fast gateway: its start script and patch |
+| `share/plugins.txt`, `share/optional-plugins.sh` | the optional third-party dsh plugins that `install.sh` installs, turned off |
 | `share/speech-whisper-romeo.mjs` | voice input: the dsh speech provider that sends recordings to Whisper on ROMEO |
 | `share/web-search-searxng.mjs`, `share/searxng/` | web search: the dsh plugin and SearXNG's settings |
 | `share/skills/romeo/` | the `romeo` skill: Slurm jobs, Spack and GPFS from the agent, linked into `~/.agents/skills` |

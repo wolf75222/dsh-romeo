@@ -6,4 +6,19 @@ case " $* " in
     [ -n "${FAKE_DSH_REAL:-}" ] && exec "$FAKE_DSH_REAL" "$@"
     exec cat "$(dirname "$0")/../dump-web.yml" ;;
 esac
+# dsh plugin --profile P add SPEC: the package becomes a dependency and a selected bundle, as
+# pnpm and dsh do; FAKE_DSH_REFUSE names a package whose install fails.
+if [ "${1:-}" = plugin ] && [ "${4:-}" = add ]; then
+  spec=$5 name=${5%@*} dir=${DSH_HOME:-$HOME/.dsh}/profiles/$3
+  [ "$name" = "${FAKE_DSH_REFUSE:-}" ] && { echo "ERR_DSH_INCOMPATIBLE: $spec requires another dsh" >&2; exit 1; }
+  mkdir -p "$dir"
+  [ -f "$dir/package.json" ] || echo '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"]}}}' >"$dir/package.json"
+  node -e '
+    const fs = require("fs"), [file, name, version] = process.argv.slice(1)
+    const d = JSON.parse(fs.readFileSync(file, "utf8"))
+    d.dependencies = { ...(d.dependencies || {}), [name]: version }
+    d.dsh.profile.bundles.push(name)
+    fs.writeFileSync(file, JSON.stringify(d))' "$dir/package.json" "$name" "${spec##*@}"
+  exit 0
+fi
 { echo "args: $*"; echo "key: ${ROMEO_LLM_KEY:-}"; } >"$FAKE_ROMEO_STATE/dsh-call"

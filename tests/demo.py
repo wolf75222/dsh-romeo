@@ -187,6 +187,12 @@ def web_part(rec, url):
         browser.close()
 
 
+def pace(ms):
+    """Shown time of a frame in the GIF: typing (under 200 ms) as recorded, pauses cut to 45 %,
+    at least 200 ms and at most 2.5 s, so the GIF reads in about 15 s instead of 33."""
+    return ms if ms < 200 else max(200, min(2500, round(ms * 0.45)))
+
+
 def render(args):
     from PIL import Image
     with open(os.path.join(FRAMES, "index.json")) as f:
@@ -202,7 +208,7 @@ def render(args):
         if scale != 1:
             img = img.resize((args.width, round(HEIGHT * scale)), Image.LANCZOS)
         images.append(img.quantize(colors=128, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE))
-        durations.append(ms)
+        durations.append(pace(ms))
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     images[0].save(args.out, save_all=True, append_images=images[1:], duration=durations, loop=0, optimize=True)
     print("%s: %d frames, %.0f s, %d KB" % (args.out, len(images), sum(durations) / 1000, os.path.getsize(args.out) // 1024))

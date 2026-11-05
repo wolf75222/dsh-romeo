@@ -266,6 +266,22 @@ if [ -n "$REAL_DSH" ]; then
   DSH_ROMEO_MODELS=kimi+deepseek run --stop
 fi
 
+# Optional plugins (share/plugins.txt): installed in the profile, left out of its selection.
+P=$T/plugins-home
+out=$(DSH_HOME=$P "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1); code=$?
+check "plugins: installed, off" has "dsh-sidenote: installed, off"
+check "plugins: exit 0" test "$code" = 0
+check "plugins: dependencies of the profile" node -e 'const d=require(process.argv[1]); process.exit(d.dependencies["dsh-prompt-predict"] && d.dependencies["dsh-sidenote"] ? 0 : 1)' "$P/profiles/web/package.json"
+check "plugins: not in the selection (off)" node -e 'const d=require(process.argv[1]); process.exit(d.dsh.profile.bundles.some((b) => b.startsWith("dsh-")) ? 1 : 0)' "$P/profiles/web/package.json"
+node -e 'const fs=require("fs"),f=process.argv[1],d=require(f); d.dsh.profile.bundles.push("dsh-sidenote"); fs.writeFileSync(f, JSON.stringify(d))' "$P/profiles/web/package.json"
+out=$(DSH_HOME=$P "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
+check "plugins again: left as they are" has "dsh-sidenote: already in the web profile, left as it is"
+check "plugins again: one you turned on stays on" node -e 'process.exit(require(process.argv[1]).dsh.profile.bundles.includes("dsh-sidenote") ? 0 : 1)' "$P/profiles/web/package.json"
+out=$(DSH_HOME=$T/plugins-home2 FAKE_DSH_REFUSE=dsh-sidenote "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1); code=$?
+check "plugins: a refused one is reported" has "dsh-sidenote: not installed (ERR_DSH_INCOMPATIBLE"
+check "plugins: the others still installed" has "dsh-prompt-predict: installed, off"
+check "plugins: exit 1 when one fails" test "$code" = 1
+
 # The romeo skill: frontmatter dsh accepts, links that resolve, and its env.sh against the fake ROMEO.
 SKILL=$ROOT/share/skills/romeo
 out=$(sed -n '1,/^---$/{/^---$/d;p;}' "$SKILL/SKILL.md" | sed -n '1,4p')
@@ -280,11 +296,11 @@ out=$(printf 'ROMEO_SSH_HOST=romeo\nROMEO_PROJECT=r000000\n' >"$T/skill-config";
 check "skill env.sh: project from dsh-romeo's config" has "project=r000000"
 check "skill env.sh: R runs over ssh" has "remote-user=demo"
 
-for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
+for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
   out=$(bash -n "$f" 2>&1); check "syntax: $(basename "$f")" test -z "$out"
 done
 if command -v shellcheck >/dev/null; then
-  out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" 2>&1); check "shellcheck" test -z "$out"
+  out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" 2>&1); check "shellcheck" test -z "$out"
   out=$(shellcheck -S warning -s bash "$SKILL/scripts/env.sh" 2>&1); check "shellcheck: skill env.sh" test -z "$out"
 fi
 

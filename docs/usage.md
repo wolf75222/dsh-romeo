@@ -18,7 +18,17 @@ git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/
 | `--host romeo` | the ssh alias of ROMEO |
 | `--bin-dir DIR` | where to link `dsh-romeo` (default `~/.local/bin`) |
 | `--search` | also runs SearXNG in Docker for web search (`127.0.0.1:8888`) |
+| `--no-plugins` | skips the optional dsh plugins below |
 | `--yes` | no questions |
+
+`install.sh` also installs a few third-party dsh plugins, **turned off**, in the dsh profiles dsh-romeo opens (`web`, and the desktop app's): turn them on or off in dsh's **Plugins** page, under *Installed plugins*. A plugin you already have is left as you set it. The list, with pinned versions read and checked on dsh 0.2.2-rc.1, is [share/plugins.txt](../share/plugins.txt):
+
+| Plugin | |
+|---|---|
+| [dsh-prompt-predict](https://github.com/ferrisching/dsh-prompt-predict) | suggests your next prompt after each answer, accepted with Tab; in its settings, pin it to `romeo / dsh-deepseek-v4.1-flash-1017-1m` with reasoning off so that it stays fast |
+| [dsh-sidenote](https://github.com/g-yixuan/dsh-sidenote) | side chat: a temporary conversation seeded from the session, whose answer comes back to the main thread |
+
+dsh already has plan mode (`/plan`) and a background jobs panel in the session header.
 
 No `romeo` alias yet? Add it to `~/.ssh/config`:
 
