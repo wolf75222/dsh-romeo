@@ -2,6 +2,10 @@
 
 [README](../README.md) · [Usage](usage.md) · [Other clients](clients.md) · [Tuning](tuning.md) · [How it works](how-it-works.md) · [Troubleshooting](troubleshooting.md) · **Changes** · [Development](development.md)
 
+## 2026-11-05
+
+- `--models`, `--launch` and `--serve`/`--env`/`--desktop` go in any order: `dsh-romeo --models kimi+deepseek --desktop --launch` launched nothing before (`--launch` was only read before the command).
+
 ## 2026-11-04
 
 - Checked with dsh 0.2.2-rc.1 (npm `next`, and the desktop app 0.2.2-rc.1). `install.sh` installs that version when Node.js is 24.9 or later. `--desktop` reads the presets it restates with the app's own dsh, whose version can differ from the npm one (0.2.1 kept a `list_agents` tool that 0.2.2-alpha.3 lacks).

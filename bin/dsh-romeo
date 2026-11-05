@@ -14,7 +14,7 @@
 #   dsh-romeo --stop              cancel the model jobs of the models' fiches, close the tunnel
 #   dsh-romeo --setup             copy the model fiches to ROMEO again (after an update)
 #   dsh-romeo --version | --help
-# --launch combines with the others: dsh-romeo --launch --run opencode.
+# --models, --launch and --serve/--env/--desktop go in any order: dsh-romeo --desktop --launch.
 # With kimi+deepseek, --launch N submits N Kimi jobs and one DeepSeek job if none is there.
 #
 # What it does: keeps the romeollmtool gateway running on the ROMEO login node, launches the
@@ -609,33 +609,47 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
 }
 
 main() {
-  local launch=0
-  if [ "${1:-}" = --models ]; then
-    [ $# -ge 2 ] || die "--models takes deepseek, kimi or kimi+deepseek"
-    DSH_ROMEO_MODELS=$2
-    shift 2
-    resolve_models
-    mkdir -p "$CONFIG_DIR"
-    printf '%s\n' "$DSH_ROMEO_MODELS" >"$MODELS_FILE"
-  fi
+  local launch=0 cmd=''
+  # --models, --launch [N] and --serve, --env, --desktop in any order; then a command and its own
+  # arguments (--run CMD ..., a dsh profile ...).
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --models)
+        [ $# -ge 2 ] || die "--models takes deepseek, kimi or kimi+deepseek"
+        DSH_ROMEO_MODELS=$2
+        shift 2
+        resolve_models
+        mkdir -p "$CONFIG_DIR"
+        printf '%s\n' "$DSH_ROMEO_MODELS" >"$MODELS_FILE" ;;
+      --launch)
+        shift
+        launch=1
+        if [[ "${1:-}" =~ ^[0-9]+$ ]]; then launch=$1; shift; fi
+        [ "$launch" -ge 1 ] && [ "$launch" -le 8 ] || die "--launch takes 1 to 8 jobs" ;;
+      --serve | --env | --desktop)
+        [ -z "$cmd" ] || [ "$cmd" = "$1" ] || die "$cmd and $1 do not combine"
+        cmd=$1
+        shift ;;
+      *) break ;;
+    esac
+  done
   resolve_models
+  if [ -n "$cmd" ]; then
+    [ $# -eq 0 ] || die "$cmd takes no argument (got $1)"
+    prepare "$launch"
+    case $cmd in
+      --serve) print_serve ;;
+      --env) print_env ;;
+      --desktop) run_desktop ;;
+    esac
+    return
+  fi
   case "${1:-}" in
     -h|--help) usage; exit 0 ;;
     -V|--version) echo "dsh-romeo $VERSION"; exit 0 ;;
     --status) cmd_status; exit 0 ;;
     --stop) cmd_stop; exit 0 ;;
     --setup) cmd_setup; exit 0 ;;
-    --launch)
-      shift
-      launch=1
-      if [[ "${1:-}" =~ ^[0-9]+$ ]]; then launch=$1; shift; fi
-      [ "$launch" -ge 1 ] && [ "$launch" -le 8 ] || die "--launch takes 1 to 8 jobs"
-      ;;
-  esac
-  case "${1:-}" in
-    --serve) prepare "$launch"; print_serve ;;
-    --env) prepare "$launch"; print_env ;;
-    --desktop) prepare "$launch"; run_desktop ;;
     --run)
       shift
       [ $# -gt 0 ] || die "--run needs a command, e.g. dsh-romeo --run opencode"

@@ -47,7 +47,7 @@ Host romeo
 | `dsh-romeo --setup` | copies the models' fiches to ROMEO again |
 | `dsh-romeo --models kimi ...` | the models, before any other option, kept for the next runs (see below) |
 
-`--launch` combines with the others: `dsh-romeo --launch --run opencode`. While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
+`--launch` combines with the others, in any order with `--models`, `--serve`, `--env` and `--desktop`: `dsh-romeo --desktop --launch`, `dsh-romeo --launch --run opencode` (before `--run`, whose arguments are the client's). While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
 
 ## Models
 

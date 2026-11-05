@@ -162,6 +162,18 @@ run --stop
 check "--stop: job stopped" has "model job 900001 stopped"
 check "--stop: no job left" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs'"
 
+# --launch after the command: dsh-romeo --serve --launch, as after --desktop.
+run --serve --launch
+check "--serve --launch: job submitted" has "model job .* submitted (dsh-deepseek-v4.1-flash-1017-1m"
+check "--serve --launch: endpoint printed" has "base URL   http://127.0.0.1:$PORT/v1"
+run --stop
+run --serve --models kimi --launch
+check "--serve --models kimi --launch: Kimi job" has "submitted (dsh-kimi-k3.1-pro-1m"
+run --models kimi --stop
+run --models deepseek --status
+run --serve --env
+check "--serve --env: refused" has "do not combine"
+
 run --models kimi --launch
 check "kimi: job of its fiche" grep -q "dsh-kimi-k3.1-pro-1m" "$FAKE_ROMEO_STATE/jobs"
 check "kimi: ready" has "Kimi-K3.1-Pro ready"
