@@ -28,8 +28,9 @@
 # DP rank has its own prefix cache), --max-num-batched-tokens 16K/32K (+3 %,
 # but half the KV cache), vLLM 0.32.0 (its humming kernels fail to compile on
 # SM90).
-# --language-model-only: text only, and it keeps the memory profiling at 1M
-# away from the vision path.
+# Images: the vision encoder is served (no --language-model-only), tested on
+# ROMEO (2026-11-05): an image read correctly in 0.9 s, 6.34M tokens of KV
+# cache instead of 6.5M, 160 tok/s for one agent with DSpark.
 # DeepSeek's sampling: temperature 1.0, top_p 0.95.
 # ==============================================================================
 
@@ -72,7 +73,6 @@ vllm:
   pipeline_parallel_size: 1
   extra_args:
     - "--disable-custom-all-reduce"
-    - "--language-model-only"
     - "--gpu-memory-utilization"
     - "0.82"
     - "--max-model-len"

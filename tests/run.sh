@@ -197,6 +197,8 @@ check "kimi+deepseek: a DeepSeek job" grep -q " dsh-deepseek-v4.1-flash-1017-1m 
 check "kimi+deepseek: Kimi ready" has "Kimi-K3.1-Pro ready"
 check "kimi+deepseek: DeepSeek ready for the subagents" has "DeepSeek-V4.1-Flash-1017 ready for the subagents"
 check "kimi+deepseek overlay: both models" bash -c "grep -q 'id: dsh-kimi-k3.1-pro-1m' '$overlay' && grep -q 'id: dsh-deepseek-v4.1-flash-1017-1m' '$overlay'"
+check "kimi+deepseek overlay: DeepSeek takes images" bash -c "grep -A5 'id: dsh-deepseek-v4.1-flash-1017-1m' '$overlay' | grep -q 'input: \[ text, image \]'"
+check "kimi+deepseek overlay: Kimi text only (--language-model-only)" bash -c "grep -A5 'id: dsh-kimi-k3.1-pro-1m' '$overlay' | grep -q 'input: \[ text \]'"
 check "kimi+deepseek overlay: Kimi by default" bash -c "grep -A3 'id: agent-default-model' '$overlay' | grep -q 'model: dsh-kimi-k3.1-pro-1m'"
 sub=$(sed -n '/^# Subagents/,$p' "$overlay")
 out=$sub

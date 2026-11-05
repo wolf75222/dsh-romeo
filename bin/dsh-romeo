@@ -139,8 +139,9 @@ ensure_gateway() {
   GATEWAY=$url
 }
 
-# A fiche as romeollmtool will launch it: served model name, context and output limits, in
-# MODEL CONTEXT MAX_TOKENS LABEL, or SUB_MODEL... with $2 = SUB_.
+# A fiche as romeollmtool will launch it: served model name, context and output limits, inputs
+# (images unless --language-model-only), in MODEL CONTEXT MAX_TOKENS INPUT LABEL, or SUB_MODEL...
+# with $2 = SUB_.
 read_fiche() {
   local fiche=$1 p=${2:-} show
   show=$(rlt catalog show "$fiche" 2>/dev/null) || true
@@ -153,11 +154,12 @@ read_fiche() {
     v && /^  served_model_name:/ { served = $2 }
     v && /^  model:/ { model = $2 }
     v && /--max-model-len/ { getline; gsub(/[^0-9]/, ""); ctx = $0 }
+    v && /--language-model-only/ { textonly = 1 }
     g && /^  max_tokens:/ { out = $2 }
     END {
       name = served != "" ? served : model
       gsub(/["\047]/, "", name); gsub(/["\047]/, "", out)
-      printf "%sMODEL=%s %sCONTEXT=%s %sMAX_TOKENS=%s\n", p, name, p, ctx + 0 ? ctx : 262144, p, out + 0 ? out : 65536
+      printf "%sMODEL=%s %sCONTEXT=%s %sMAX_TOKENS=%s %sINPUT=%s\n", p, name, p, ctx + 0 ? ctx : 262144, p, out + 0 ? out : 65536, p, textonly ? "text" : "text,image"
     }')"
   local model=${p}MODEL
   [ -n "${!model}" ] || die "cannot read the served model name of fiche '$fiche'"
@@ -295,13 +297,13 @@ summary() {  # one line for the jobs: "job 123 running 4:10" or "job 123 pending
 
 # ---------------------------------------------------------------- dsh
 
-overlay_model() {  # $1 model, $2 name, $3 context, $4 output limit
+overlay_model() {  # $1 model, $2 name, $3 context, $4 output limit, $5 inputs (text or text,image)
   cat <<YAML
           - id: $1
             name: $2 (ROMEO)
             contextWindow: $3
             maxTokens: $4
-            input: [ text ]
+            input: [ ${5//,/, } ]
             reasoningEfforts: { off: none, low: low, high: high, max: max }
 YAML
 }
@@ -394,8 +396,8 @@ write_overlay() {  # $1: the dsh profile, $2: the dsh that runs it
         streamIdleTimeoutMs: 600000
         models:
 YAML
-    overlay_model "$MODEL" "$LABEL" "$CONTEXT" "$MAX_TOKENS"
-    [ -z "$SUB_MODEL" ] || overlay_model "$SUB_MODEL" "$SUB_LABEL" "$SUB_CONTEXT" "$SUB_MAX_TOKENS"
+    overlay_model "$MODEL" "$LABEL" "$CONTEXT" "$MAX_TOKENS" "$INPUT"
+    [ -z "$SUB_MODEL" ] || overlay_model "$SUB_MODEL" "$SUB_LABEL" "$SUB_CONTEXT" "$SUB_MAX_TOKENS" "$SUB_INPUT"
     cat <<YAML
 - id: agent-default-model
   config:
