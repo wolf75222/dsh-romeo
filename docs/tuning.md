@@ -11,14 +11,14 @@ What an A/B study on ROMEO (October 2026, up to 7 jobs and 3584 concurrent reque
 | vLLM 0.33.0, its Humming MoE kernels compiled into each node's own `/tmp` | +19 % per agent alone, +22 % at 16 agents, +34 % at 64 (2249 against 1505 tok/s in all), half the time to first token at 64, 6.66M tokens of KV cache instead of 6.21M, against 0.31 measured at the same time (2026-11-06) | fiche |
 | DSpark draft tokens drawn from the draft's distribution (`draft_sample_method: probabilistic`), still exact rejection | +26 to +36 % per agent at 4 agents, +15 to +19 % at 16, +12 to +19 % at 64, two runs against greedy on 0.33 (2026-11-06); 4 % less KV cache | fiche |
 | DSpark speculative decoding, 2 draft tokens with the 1017 weights (3 with September's); 32 CPUs per node; `--stream-interval 4` | +61 % per agent at 16 agents per job and +70 % at 64, against 5 draft tokens and 8 CPUs; on 1017, k=2 beats k=3 by 3 to 9 % and k=4 loses up to 21 % | fiche |
-| Full 1M context, 256K output, `--gpu-memory-utilization 0.82`, images on (the vision encoder served) | the context the model was trained for; 6.34M tokens of KV cache with vision (4.7M at 0.78) and still starts on GH200s with only 77-80 GiB free | fiche |
+| Full 1M context, 256K output, images on (the vision encoder served) | the context the model was trained for; images read correctly on the production fiche (2026-11-06) | fiche |
 | DeepSeek's sampling (temperature 1.0, top_p 0.95), maximum reasoning by default | `DSH_ROMEO_EFFORT` to change it | fiche, launcher |
 | Several jobs behind one gateway | `dsh-romeo --launch N` | launcher |
 | Fast gateway: no 100-stream cap, session affinity across jobs, longer timeouts, 4 processes | 3584 of 3584 concurrent requests served (the standard gateway: 502 errors beyond about 100 streams); -20 to -28 % wall time and -59 % time to first token late in multi-turn sessions with several jobs | `DSH_ROMEO_GATEWAY=fast` |
 
 With all of them, fast gateway included, 7 jobs served about 530 agents at once at 30 tokens/s each (235 multi-turn agents), against 165 for the first setup.
 
-Tried on the 1017 weights (2026-10-28) and left out: data parallelism over 2 x TP4 with expert parallelism (+28 % on 128 independent requests, but -23 % output and 3x the late time to first token on 42 multi-turn agent sessions, since each data-parallel rank has its own prefix cache), `--max-num-batched-tokens` 16K or 32K (+3 %, half the KV cache), vLLM 0.32.0 (its humming kernels fail to compile on SM90). On 0.33 (2026-11-06): DSpark's official recipe (k=5, probabilistic draft, block verification, adaptive) gives +7 to +11 % up to 16 agents and +2 % at 64, but halves the KV cache (3.36M): its adaptive verification needs 16 GiB more per GPU (also alone, at k=3 or k=5). Block verification at k=5 loses from 16 agents on.
+Tried on the 1017 weights (2026-10-28) and left out: data parallelism over 2 x TP4 with expert parallelism (+28 % on 128 independent requests, but -23 % output and 3x the late time to first token on 42 multi-turn agent sessions, since each data-parallel rank has its own prefix cache), `--max-num-batched-tokens` 16K or 32K (+3 %, half the KV cache), vLLM 0.32.0 (its humming kernels fail to compile on SM90). On 0.33 (2026-11-06): DSpark's official recipe (k=5, probabilistic draft, block verification, adaptive) gives +7 to +11 % up to 16 agents and +2 % at 64, but halves the KV cache (3.36M): its adaptive verification needs 16 GiB more per GPU (also alone, at k=3 or k=5). Block verification at k=5 loses from 16 agents on. Also left out on 0.33 at 0.88 (2026-11-06, two or three runs each): 4 NCCL queue pairs per InfiniBand connection (+5 to +7 % up to 4 agents, nothing at 16-64, 10 % less KV cache), `--async-scheduling` (nothing at 16-64), `--max-num-batched-tokens 16384` (20 % faster first token, same tok/s per agent, 30 % less KV cache: the KV cache holds the prefix cache of long dsh sessions).
 
 The fiche is [share/fiches/dsh-deepseek-v4.1-flash-1017-1m.yaml](../share/fiches/dsh-deepseek-v4.1-flash-1017-1m.yaml).
 
@@ -30,9 +30,10 @@ It starts from the Kimi K3 measurements (October 2026): TP8 x PP4, DCP8, `--no-a
 
 | Agents (16K prompts) | 1 | 4 | 9 | 16 |
 |---|---|---|---|---|
-| tok/s per agent | 30.5 | 15.4 | 12.0 | 9.4 |
+| tok/s per agent, 2026-11-04 | 30.5 | 15.4 | 12.0 | 9.4 |
+| tok/s per agent, now | 38.0-38.6 | 23.1-23.8 | 28.4-29.4 | 22-23 |
 
-One agent at 763K tokens: 30 tok/s, 80 s to the first token. Left out: 16K prefill chunks (-28 to -39 % per agent from 4 agents), DSpark (no Hopper backend runs its draft under DCP; without DCP, 804K tokens of KV cache in all). The model starts in about 12 min, 6 of them reading the weights.
+9 agents on 128K prompts: 14.0-14.7 tok/s each (6.4 before). One agent at 800K tokens: 37 tok/s. Images read correctly on the production fiche. Left out: 16K prefill chunks (-28 to -39 % per agent from 4 agents), DSpark (no Hopper backend runs its draft under DCP; without DCP, 804K tokens of KV cache in all), and on the current engine (2026-11-06): CUDA graphs up to 8192 tokens (same speed, 16 % less KV cache), `--max-num-seqs 8` (19 % slower for 9 agents at 128K), 4 NCCL queue pairs (within the noise), DCP2 (same speed as DCP4, half the KV cache), TP4 x PP8 (-23 to -52 % from 4 agents), Humming (no change). The model starts in about 12 min, 6 of them reading the weights.
 
 ## The fast gateway
 

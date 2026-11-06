@@ -2,6 +2,10 @@
 
 [README](../README.md) · [Usage](usage.md) · [Other clients](clients.md) · [Tuning](tuning.md) · [How it works](how-it-works.md) · [Troubleshooting](troubleshooting.md) · **Changes** · [Development](development.md)
 
+## 2026-11-07
+
+- Tuning finished: the last A/B runs on ROMEO (NCCL queue pairs, async scheduling and a 16K prefill budget for DeepSeek; NCCL queue pairs and DCP2 for Kimi) did not beat the production fiches, which stay as they are ([Tuning](tuning.md)). Images and voice checked again on both production fiches. README: the speeds measured.
+
 ## 2026-11-06
 
 - More errors caught before they cost a wait, each with what to type: Kimi's weights not readable by your login (checked before the job is submitted), a project Slurm refuses, a full ROMEO home, a `DSH_ROMEO_TIME` that is not `HH:MM:SS` up to 24 h, and a queued job that would never start (GPU hours used up, time over the allowed one, held). The queue reasons are said in words (the project's GPU limit reached, no free nodes, maintenance). A model that loads much longer than usual is reported once, and a job with less than 30 min left is said when dsh opens.

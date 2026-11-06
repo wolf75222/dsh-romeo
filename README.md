@@ -4,7 +4,7 @@
 
 ![dsh-romeo --launch starts DeepSeek-V4.1-Flash-1017 on ROMEO and opens the dsh Web UI, where an agent fixes a failing test; then the Trajectory tab of that session](img/dsh-romeo.gif)
 
-The model is DeepSeek's 17 October 2026 release of V4.1-Flash, with its full 1M-token context, on 2 nodes (8 GH200, tensor parallel) with DSpark speculative decoding: the settings an A/B study on ROMEO kept ([Tuning](docs/tuning.md)).
+The model is DeepSeek's 17 October 2026 release of V4.1-Flash, with its full 1M-token context, on 2 nodes (8 GH200, tensor parallel) with DSpark speculative decoding: about 200 tok/s for one agent and 2500 tok/s across 64 agents. Kimi-K3.1-Pro runs on 8 nodes (32 GH200): 38 tok/s for one agent, 29 each for 9. These are the settings an A/B study on ROMEO kept ([Tuning](docs/tuning.md)).
 
 ## Install
 
