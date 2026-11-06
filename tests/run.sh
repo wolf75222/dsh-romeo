@@ -87,7 +87,7 @@ check "job running: straight to dsh" lacks submitted
 check "headless and its task pass through" grep -q "args: headless --patch .* fix the tests" "$FAKE_ROMEO_STATE/dsh-call"
 
 DSH_ROMEO_SEARXNG_URL=http://127.0.0.1:8888 run
-check "overlay: SearXNG when configured" grep -q 'baseURL: "http://127.0.0.1:8888"' "$overlay"
+check "overlay: SearXNG when configured" grep -q "baseURL: 'http://127.0.0.1:8888'" "$overlay"
 check "overlay: SearXNG plugin path" grep -q "name: $ROOT/share/web-search-searxng.mjs" "$overlay"
 
 # Other clients: the endpoint as variables, a summary, any program, codex's flags.
@@ -190,6 +190,7 @@ check "forward refused once: a new connection and it works" has "base URL"
 rm -f "$FAKE_ROMEO_STATE/forward-fails" "$DSH_ROMEO_SOCKET.target"
 PATH=$T/nolsof:$PATH FAKE_FORWARD_FAIL=2 run --serve
 check "forward refused twice: ssh's reason, not a guess" has "ssh refused it: mux_client_forward"
+check "forward refused twice: next step keeps the jobs" lacks "next: dsh-romeo --stop"
 rm -f "$FAKE_ROMEO_STATE/forward-fails"
 # A ROMEO_LLM_KEY saved in dsh's credential store would replace the gateway's key.
 mkdir -p "$T/dsh-store"
@@ -212,6 +213,24 @@ check "--doctor, ROMEO unreachable: ssh failed" has "ssh .*failed"
 run --logs
 check "--logs: the agent's job" has "log of model job 900001"
 check "--logs: its lines" has "log line of job 900001"
+# Failures found before anything starts on ROMEO, or right away: no job submitted for nothing.
+jobs_before=$(wc -l <"$FAKE_ROMEO_STATE/jobs")
+run --stauts
+check "unknown option: refused" has "unknown option --stauts"
+run --launch --run no-such-client
+check "--run, client missing: said before launching" has "no-such-client: command not found"
+DSH_ROMEO_DSH=no-such-dsh run --launch
+check "dsh missing: said before launching" has "dsh is not installed"
+check "no job submitted by these" test "$(wc -l <"$FAKE_ROMEO_STATE/jobs")" = "$jobs_before"
+FAKE_KEY=stale-key run headless "x"
+check "a key the gateway refuses: said, no endless wait" has "the gateway refuses the key"
+FAKE_KEY=stale-key run --doctor
+check "--doctor: a refused key fails" has "key .*failed .*refuses"
+touch "$FAKE_ROMEO_STATE/squeue-fail"
+run --stop
+check "--stop, squeue down: never 'no model job'" lacks "no model job of dsh-romeo"
+check "--stop, squeue down: says jobs may still run, exit 1" bash -c "[ $code = 1 ] && grep -q 'may still run' <<<\"\$1\"" _ "$out"
+rm -f "$FAKE_ROMEO_STATE/squeue-fail"
 run --version
 check "--version: dsh-romeo and dsh" bash -c "grep -q '^dsh-romeo ' <<<\"\$1\" && grep -q '^dsh ' <<<\"\$1\"" _ "$out"
 
@@ -329,6 +348,60 @@ check "unknown fiche: clear error" has "fiche 'no-such-fiche' not found"
 
 FAKE_ROMEO_UNREACHABLE=1 DSH_ROMEO_SOCKET=$T/ctl2 run --status
 check "ROMEO unreachable: clear error" has "cannot connect to 'romeo' over SSH"
+
+# State that goes stale: a dead connection, a refused key, a remembered value, voice turned off.
+run --launch
+FAKE_ROMEO_UNREACHABLE=1 run --stop
+check "dead connection: --stop does not claim there is no job" lacks "no model job of dsh-romeo"
+check "dead connection: --stop fails" test "$code" != 0
+check "dead connection: the job is still there" grep -q dsh-deepseek "$FAKE_ROMEO_STATE/jobs"
+run --stop
+check "--stop on a new connection: the job stopped" has "model job .* stopped"
+run --launch
+printf '#!/usr/bin/env bash\n[ "$1 ${2:-}" = "gateway show-key" ] && { echo someone-elses-key; exit; }\nexec "%s" "$@"\n' "$FAKE/romeollmtool" >"$T/rlt-other-key"
+chmod +x "$T/rlt-other-key"
+out=$(ROMEOLLMTOOL=$T/rlt-other-key perl -e 'alarm 20; exec @ARGV' "$ROOT/bin/dsh-romeo" headless x 2>&1)  # an endless wait is killed
+check "refused key: stops at once and says so, no endless wait" has "the gateway refuses the key dsh-romeo read (HTTP 401"
+echo gpt >"$DSH_ROMEO_CONFIG_DIR/models"
+run --stop
+check "invalid remembered --models: --stop still works" has "model job .* stopped"
+check "invalid remembered --models: forgotten" test ! -e "$DSH_ROMEO_CONFIG_DIR/models"
+DSH_ROMEO_VOICE_PORT=$PORT run --voice on --launch headless "voice"
+run --voice off headless "no voice"
+check "voice off: no Whisper key left" test ! -e "$DSH_ROMEO_CONFIG_DIR/whisper.key"
+check "voice off: no voice forward noted" test ! -e "$DSH_ROMEO_SOCKET.voice"
+check "voice off: its running job said" has "Whisper job .* still runs"
+run --voice off --stop
+# Edited config values: quotes stay valid YAML, spaces and ';' stay one argument on ROMEO.
+DSH_ROMEO_SEARXNG_URL='http://127.0.0.1:8888/?q="x"' DSH_ROMEO_TIME="08:00:00; touch $FAKE_ROMEO_HOME/injected" run --launch headless x
+check "config with quotes: SearXNG URL single-quoted" grep -q "baseURL: 'http://127.0.0.1:8888/?q=\"x\"'" "$overlay"
+check "config with ';': not run on ROMEO" test ! -e "$FAKE_ROMEO_HOME/injected"
+run --stop
+# A login script on ROMEO that prints: --env keeps only exports, the job list keeps only jobs.
+run --launch
+env_out=$(FAKE_REMOTE_NOISE='Loading modules' DSH_ROMEO_GATEWAY=fast "$ROOT/bin/dsh-romeo" --env 2>/dev/null)
+check "--env with a chatty ROMEO login: only exports" only_exports
+out=$env_out
+check "--env with a chatty ROMEO login: the gateway key" has "export OPENAI_API_KEY=test-key"
+FAKE_REMOTE_NOISE='Loading modules' run --status
+check "status with a chatty ROMEO login: no job named Loading" lacks "Loading"
+run --stop
+# Another ROMEO_SSH_HOST before: --stop closes that connection too.
+H2=$T/home2
+env -u DSH_ROMEO_SOCKET HOME=$H2 ROMEO_SSH_HOST=romeo-a "$ROOT/bin/dsh-romeo" --status >/dev/null 2>&1
+out=$(env -u DSH_ROMEO_SOCKET HOME=$H2 ROMEO_SSH_HOST=romeo-b "$ROOT/bin/dsh-romeo" --stop 2>&1)
+check "host changed: --stop closes the earlier host's connection" test ! -e "$H2/.ssh/dsh-romeo-romeo-a.sock"
+check "missing ~/.ssh: created private" test "$(stat -c %a "$H2/.ssh" 2>/dev/null || stat -f %Lp "$H2/.ssh")" = 700
+if [ "$(uname)" = Darwin ]; then
+  run --launch
+  mkdir -p "$T/home3" "$T/dsh-home3"
+  HOME=$T/home3 DSH_HOME=$T/dsh-home3 run --desktop
+  check "--desktop with DSH_HOME: the app's profile in ~/.dsh" grep -q "provider: romeo" "$T/home3/.dsh/profiles/desktop/cordis.patch.yml"
+  DSH_ROMEO_DESKTOP_APP='No Such App' HOME=$T/home3 run --models kimi+deepseek --launch --desktop
+  check "--desktop, app's dsh not found: no presets of another dsh" bash -c "! grep -q preset-standard '$T/home3/.dsh/profiles/desktop/cordis.patch.yml'"
+  DSH_ROMEO_MODELS=kimi+deepseek run --stop
+  run --models deepseek --status
+fi
 
 if [ -n "$REAL_DSH" ]; then
   # The overlay must compose with the real dsh (fresh DSH_HOME, no network needed).

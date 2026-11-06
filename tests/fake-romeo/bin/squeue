@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Fake squeue: understands -n NAME; prints "id state elapsed left nodes start reason".
 name=''
+# FAKE_ROMEO_STATE/squeue-fail: slurmctld does not answer.
+[ -e "$FAKE_ROMEO_STATE/squeue-fail" ] && { echo "slurm_load_jobs error: Socket timed out on send/recv operation" >&2; exit 1; }
 while [ $# -gt 0 ]; do case $1 in -n) name=$2; shift 2 ;; *) shift ;; esac; done
 [ -f "$FAKE_ROMEO_STATE/jobs" ] || exit 0
 while read -r id fiche _; do
@@ -10,3 +12,4 @@ while read -r id fiche _; do
   start=N/A; [ "$state" = PENDING ] && start=${FAKE_START:-N/A}
   [ -z "$name" ] || [ "$name" = "romeollmtool-$fiche" ] && echo "$id $state 0:42 7:59:18 2 $start $reason"
 done <"$FAKE_ROMEO_STATE/jobs"
+exit 0  # squeue exits 0 when no job matches

@@ -27,4 +27,5 @@ esac
 if [ "$master" = 1 ]; then : >"$ctl"; exit 0; fi
 unset 'args[0]'   # the host
 [ ${#args[@]} -eq 0 ] && exit 0
+[ -n "${FAKE_REMOTE_NOISE:-}" ] && echo "$FAKE_REMOTE_NOISE"   # a ROMEO .bashrc that prints
 HOME=$FAKE_ROMEO_HOME USER=demo PATH=$(dirname "$0"):$PATH bash -c "${args[*]}"

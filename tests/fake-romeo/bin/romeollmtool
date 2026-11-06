@@ -8,7 +8,7 @@ case "$1 ${2:-}" in
     else echo "La gateway ne tourne pas (romeollmtool gateway start)."; fi ;;
   "gateway start") : >"$S/gateway"; echo started ;;
   "gateway extend") echo extended ;;
-  "gateway show-key") echo test-key ;;
+  "gateway show-key") echo "${FAKE_KEY:-test-key}" ;;  # FAKE_KEY: a key the gateway refuses
   "catalog show")
     f=$HOME/.romeollmtool/configs/$3.yaml
     [ -f "$f" ] || { echo "Fiche inconnue : $3" >&2; exit 1; }

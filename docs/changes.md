@@ -2,6 +2,12 @@
 
 [README](../README.md) · [Usage](usage.md) · [Other clients](clients.md) · [Tuning](tuning.md) · [How it works](how-it-works.md) · [Troubleshooting](troubleshooting.md) · **Changes** · [Development](development.md)
 
+## 2026-11-06
+
+- Errors: a key the gateway refuses (401) stops the wait at once instead of looping; what this computer lacks (dsh, the app, the `--run` client, an unknown option) is said before any job is submitted; the key is read before launching; a failure after a submit says the job keeps running; squeue or SSH not answering is "unknown", never "no job" (`--stop` exits 1 then); a dead SSH connection after sleep is replaced; a job ending while loading points to `--logs`, which falls back to romeollmtool's last log.
+- State: `--voice off` removes the Whisper forward and key and says when its job still runs; one voice watcher at a time; an invalid remembered `--models` is forgotten instead of blocking every command; `--stop` closes connections opened with an earlier `ROMEO_SSH_HOST`; `--desktop` writes the app's profile in `~/.dsh` even with `DSH_HOME` set, and skips the subagent presets when the app's dsh cannot be found; config values with spaces or quotes reach ROMEO intact; `--env`/`--serve` stdout stays clean with a chatty ROMEO login; two starts at once no longer race on the connection or temporary files; `~/.ssh` is created private.
+- Fixes: `--doctor` closes the connection it opened and tests the key against the gateway; a dsh credential file left with no other key stays writable by dsh; silent exits under `set -e` (free port with a refused forward, the app's dsh not found, an unreadable dsh version) now give their message.
+
 ## 2026-11-05
 
 - The ready line gives the gateway's URL on ROMEO and the local tunnel URL, each on its own line.
