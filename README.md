@@ -30,6 +30,7 @@ Options go before the command and are remembered for the next runs:
 
 - `--models kimi`: Kimi-K3.1-Pro instead of DeepSeek (32 GH200; its weights are open to project r260105 only). `--models kimi+deepseek`: Kimi for the agent, DeepSeek for its subagents.
 - `--voice on`: dsh's microphone button, transcribed by Whisper on ROMEO.
+- `--web on`: web search in dsh, through RustXNG on the ROMEO login node (nothing to install on your computer).
 
 Both models read images: paste a screenshot or attach a picture in dsh, nothing to turn on.
 

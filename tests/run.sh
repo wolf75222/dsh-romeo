@@ -560,6 +560,58 @@ check "ready: a job that ends soon is said" has "model job ends in 12 min"
 DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run --serve
 check "ready: a job with hours left says nothing" lacks "ends in"
 cp "$T/jobs.saved" "$FAKE_ROMEO_STATE/jobs"
+# Web search on ROMEO (--web on): RustXNG's binary installed once (checksum), run per search over SSH.
+cat >"$T/fake-rustxng" <<'RX'
+#!/usr/bin/env bash
+# Fake RustXNG: "mcp" answers initialize and one search on stdin/stdout.
+[ "${1:-}" = mcp ] || exit 2
+while read -r line; do
+  case $line in
+    *'"id":1'*) echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"rustxng","version":"0.28.0"}}}' ;;
+    *'"id":2'*) q=$(sed -E 's/.*"query":"([^"]*)".*/\1/' <<<"$line")
+                echo '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{}"}],"structuredContent":{"query":"'"$q"'","results":[{"url":"https://example.org/a","title":"A for '"$q"'","snippet":"first"},{"url":"https://example.org/a","title":"dup"},{"url":"https://example.org/b","title":"B"}],"truncated":false}}}' ;;
+  esac
+done
+RX
+chmod +x "$T/fake-rustxng"
+rx_sum=$( { sha256sum "$T/fake-rustxng" 2>/dev/null || shasum -a 256 "$T/fake-rustxng"; } | cut -d' ' -f1)
+export DSH_ROMEO_RUSTXNG_URL=file://$T/fake-rustxng DSH_ROMEO_RUSTXNG_SHA256=$rx_sum
+cp "$FAKE_ROMEO_STATE/jobs" "$T/jobs.saved2" 2>/dev/null || : >"$T/jobs.saved2"
+echo "990002 dsh-deepseek-v4.1-flash-1017-1m 1" >"$FAKE_ROMEO_STATE/jobs"
+run --web foo
+check "--web foo: refused" has "web: on or off, not 'foo'"
+DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run --web on headless "web"
+check "--web on: RustXNG installed on ROMEO, checksum verified" has "web search installed on ROMEO"
+check "--web on: the binary is on ROMEO" test -x "$FAKE_ROMEO_HOME/.dsh-romeo/rustxng/rustxng-v0.28.0-x86_64-unknown-linux-musl"
+check "--web on: ready" has "web search ready"
+check "--web on: the overlay selects it" grep -q "searchProvider: dsh-romeo-rustxng" "$overlay"
+check "--web on: over the shared SSH connection" grep -q "socket: '$DSH_ROMEO_SOCKET'" "$overlay"
+check "--web on: dsh still starts" grep -q "args: headless --patch .* web" "$FAKE_ROMEO_STATE/dsh-call"
+DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run headless "web again"
+check "--web remembered, not installed twice" bash -c 'grep -q "web search ready" <<<"$1" && ! grep -q "installed on ROMEO" <<<"$1"' _ "$out"
+out=$(cd "$T" && node --input-type=module -e "
+  const m = await import(process.argv[1])
+  let p; m.apply({ web: { registerSearchProvider: (x) => { p = x } } }, { host: 'romeo', socket: process.argv[2], binary: '~/.dsh-romeo/rustxng/rustxng-v0.28.0-x86_64-unknown-linux-musl' })
+  const r = await p.search({ query: 'vllm dcp' })
+  console.log(JSON.stringify(r))" "$ROOT/share/web-search-romeo.mjs" "$DSH_ROMEO_SOCKET" 2>&1)
+check "web plugin: results through ssh + rustxng mcp" has '"url":"https://example.org/a","title":"A for vllm dcp","snippet":"first"'
+check "web plugin: duplicates dropped" bash -c '[ "$(grep -o example.org/a <<<"$1" | wc -l | tr -d " ")" = 1 ]' _ "$out"
+out=$(cd "$T" && FAKE_ROMEO_UNREACHABLE=1 node --input-type=module -e "
+  const m = await import(process.argv[1])
+  let p; m.apply({ web: { registerSearchProvider: (x) => { p = x } } }, { binary: 'x' })
+  try { await p.search({ query: 'q' }) } catch (e) { console.log(e.message) }" "$ROOT/share/web-search-romeo.mjs" 2>&1)
+check "web plugin: a closed SSH connection, said" has "SSH connection to ROMEO is closed"
+DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run --status
+check "status: web search row" has "web  *on  *RustXNG on the ROMEO login node"
+rm -f "$FAKE_ROMEO_HOME/.dsh-romeo/rustxng/rustxng-v0.28.0-x86_64-unknown-linux-musl"
+DSH_ROMEO_RUSTXNG_SHA256=0000 DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run headless "bad sum"
+check "--web on, checksum mismatch: not installed, said" has "web search unavailable: RustXNG on ROMEO: checksum mismatch"
+check "--web on, checksum mismatch: dsh starts without it" grep -q "args: headless --patch .* bad sum" "$FAKE_ROMEO_STATE/dsh-call"
+check "--web on, checksum mismatch: no binary left" test ! -e "$FAKE_ROMEO_HOME/.dsh-romeo/rustxng/rustxng-v0.28.0-x86_64-unknown-linux-musl"
+DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run --web off headless "no web"
+check "--web off: not in the overlay" bash -c "! grep -q dsh-romeo-rustxng '$overlay'"
+cp "$T/jobs.saved2" "$FAKE_ROMEO_STATE/jobs"
+unset DSH_ROMEO_RUSTXNG_URL DSH_ROMEO_RUSTXNG_SHA256
 check "minutes of Slurm durations" bash -c 'eval "$(sed -n "/^minutes_of()/,/^}/p" "$1")"; [ "$(minutes_of 1-02:03:04)" = 1563 ] && [ "$(minutes_of 12:00)" = 12 ] && [ "$(minutes_of 2:00:00)" = 120 ] && [ "$(minutes_of N/A)" = 0 ]' _ "$ROOT/bin/dsh-romeo"
 run --help
 check "--help: the everyday commands first" has "^Every day"
@@ -567,7 +619,7 @@ check "--help: what to run when something is wrong" has "dsh-romeo --doctor"
 run --doctor
 check "--doctor: the weights checked" has "weights .*ok .*DeepSeek-V4.1-Flash-1017"
 
-for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
+for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/rustxng-install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
   out=$(bash -n "$f" 2>&1); check "syntax: $(basename "$f")" test -z "$out"
 done
 if command -v shellcheck >/dev/null; then

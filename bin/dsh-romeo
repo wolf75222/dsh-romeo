@@ -7,9 +7,10 @@
 #   dsh-romeo --status            what runs on ROMEO, and why the last job ended
 #   dsh-romeo --stop              stop the model jobs (they use GPU hours) and the tunnel
 #
-# Options (before the command, in any order; --models and --voice are remembered)
+# Options (before the command, in any order; --models, --voice and --web are remembered)
 #   --models deepseek|kimi|kimi+deepseek   the model; kimi+deepseek: DeepSeek runs the subagents
 #   --voice on|off                voice input in dsh, Whisper on ROMEO (1 GPU)
+#   --web on|off                  web search in dsh, RustXNG on the ROMEO login node (no GPU)
 #   --launch N                    N DeepSeek jobs at once (1-8), for many agents
 #
 # Other ways in
@@ -48,6 +49,7 @@ ROOT=$(cd "$(dirname "$src")/.." && pwd)
 CONFIG_DIR=${DSH_ROMEO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo}
 MODELS_ENV=${DSH_ROMEO_MODELS:-}  # set in the environment: wins over the remembered --models
 VOICE_ENV=${DSH_ROMEO_VOICE:-}
+WEB_ENV=${DSH_ROMEO_WEB:-}
 # shellcheck source=/dev/null
 [ -f "$CONFIG_DIR/config" ] && . "$CONFIG_DIR/config"
 # The last --models, kept until the next one; then the environment, the config file, deepseek.
@@ -58,6 +60,13 @@ if [ -z "$MODELS_ENV" ] && [ -s "$MODELS_FILE" ]; then
   case $(cat "$MODELS_FILE") in
     deepseek | kimi | kimi+deepseek) DSH_ROMEO_MODELS=$(cat "$MODELS_FILE") ;;
     *) printf 'dsh-romeo: remembered --models %s is not valid: forgotten\n' "$(cat "$MODELS_FILE")" >&2; rm -f "$MODELS_FILE" ;;
+  esac
+fi
+WEB_FILE=$CONFIG_DIR/web
+if [ -z "$WEB_ENV" ] && [ -s "$WEB_FILE" ]; then
+  case $(cat "$WEB_FILE") in
+    on | off) DSH_ROMEO_WEB=$(cat "$WEB_FILE") ;;
+    *) rm -f "$WEB_FILE" ;;
   esac
 fi
 VOICE_FILE=$CONFIG_DIR/voice
@@ -71,6 +80,7 @@ fi
 : "${ROMEO_PROJECT:=}"                                   # Slurm project code charged for the model jobs
 : "${DSH_ROMEO_MODELS:=deepseek}"                        # deepseek, kimi, or kimi+deepseek (DeepSeek subagents)
 : "${DSH_ROMEO_VOICE:=off}"                              # on: voice input, Whisper on ROMEO (1 GPU)
+: "${DSH_ROMEO_WEB:=off}"                                # on: web search, RustXNG on the ROMEO login node
 : "${DSH_ROMEO_FICHE:=}"                                 # a fiche of your own for the agent's model
 : "${DSH_ROMEO_TIME:=08:00:00}"                          # model job duration (max 24:00:00)
 : "${DSH_ROMEO_PORT:=11318}"                             # local end of the tunnel
@@ -119,7 +129,7 @@ usage() {  # the header comment, up to "What it does", and the remembered choice
   local b='' n=''
   if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then b=$'\e[1m' n=$'\e[0m'; fi
   awk -v b="$b" -v n="$n" 'NR > 1 && /^# What it does/ { exit } NR > 1 { sub(/^# ?/, ""); if (/^[A-Z]/ && NR > 3) $0 = b $0 n; print }' "$src"
-  printf '  now: --models %s --voice %s%s\n' "$DSH_ROMEO_MODELS" "$DSH_ROMEO_VOICE" \
+  printf '  now: --models %s --voice %s --web %s%s\n' "$DSH_ROMEO_MODELS" "$DSH_ROMEO_VOICE" "$DSH_ROMEO_WEB" \
     "$([ -n "$ROMEO_PROJECT" ] && echo ", project $ROMEO_PROJECT" || echo ", no project (rerun install.sh)")"
 }
 
@@ -137,6 +147,10 @@ resolve_models() {
     on) VOICE_FICHE=$FICHE_VOICE ;;
     off) VOICE_FICHE='' ;;
     *) die "voice: on or off, not '$DSH_ROMEO_VOICE'" "dsh-romeo --voice off" ;;
+  esac
+  case $DSH_ROMEO_WEB in
+    on | off) ;;
+    *) die "web: on or off, not '$DSH_ROMEO_WEB'" "dsh-romeo --web off" ;;
   esac
   FICHES=$FICHE${SUB_FICHE:+ $SUB_FICHE}${VOICE_FICHE:+ $VOICE_FICHE}
 }
@@ -752,7 +766,25 @@ YAML
 YAML
     [ -z "$SUB_MODEL" ] || helper_patch "${1:-web}" "${2:-}" "${3:-}"
     [ -z "$VOICE_FICHE" ] || voice_patch "${3:-${1:-web}}"
-    if [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
+    if [ -n "$WEB_READY" ]; then
+      cat <<YAML
+# Web search through RustXNG on ROMEO (dsh-romeo --web on), over the shared SSH connection.
+- id: web
+  config:
+    searchProvider: dsh-romeo-rustxng
+    fetchProvider: http
+- id: tool-web
+  disabled: false
+- insert:
+    - id: dsh-romeo-rustxng
+      name: $ROOT/share/web-search-romeo.mjs
+      config:
+        providerId: dsh-romeo-rustxng
+        host: $(yaml_str "$HOST")
+        socket: $(yaml_str "$CTL")
+        binary: $(yaml_str "$RUSTXNG_BIN")
+YAML
+    elif [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
       cat <<YAML
 # Web search through SearXNG (DSH_ROMEO_SEARXNG_URL).
 - id: web
@@ -835,7 +867,7 @@ merge_desktop_patch() {
       n = split(earlier, a, " "); for (i = 1; i <= n; i++) old[a[i]] = 1
     }
     function flush() {
-      if (row != "" && !(id in ours) && !((id in old) && row ~ /romeo/) && row !~ /dsh-romeo-searxng/ && row !~ /dsh-romeo-whisper/ && row !~ /agentOptions:\n *provider: romeo\n/)
+      if (row != "" && !(id in ours) && !((id in old) && row ~ /romeo/) && row !~ /dsh-romeo-searxng/ && row !~ /dsh-romeo-rustxng/ && row !~ /dsh-romeo-whisper/ && row !~ /agentOptions:\n *provider: romeo\n/)
         printf "%s", row
       row = ""; id = ""
     }
@@ -1050,7 +1082,7 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
   pass() { status_row "$1" ok "$G" "$2"; }
   warn() { status_row "$1" warning "$Y" "$2"; }
   fail() { status_row "$1" failed "$R" "$2"; failed=1; }
-  say "doctor ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE${N}"
+  say "doctor ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE --web $DSH_ROMEO_WEB${N}"
   # This computer
   if command -v node >/dev/null; then
     v=$(node --version)
@@ -1119,12 +1151,18 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
     esac
   fi
   if [ -n "$url" ]; then pass gateway running; else warn gateway "stopped: the next dsh-romeo starts it"; fi
+  if [ "$DSH_ROMEO_WEB" = on ]; then
+    case $(rustxng check) in
+      ok) pass web "RustXNG 0.28.0 on ROMEO, checksum verified" ;;
+      *) warn web "RustXNG not installed on ROMEO yet: the next dsh-romeo installs it" ;;
+    esac
+  fi
   [ "$failed" = 0 ] || die "doctor: a check failed"
   say "doctor: ${G}all good${N}"
 }
 
 cmd_completion() {  # $1: bash or zsh. Options, then the values of --models, --voice and --completion.
-  local words="--models --voice --launch --desktop --run --serve --env --status --stop --setup --logs --doctor --completion --version --help"
+  local words="--models --voice --web --launch --desktop --run --serve --env --status --stop --setup --logs --doctor --completion --version --help"
   case ${1:-} in
     bash | zsh) ;;
     *) die "--completion takes bash or zsh" 'eval "$(dsh-romeo --completion zsh)"   # in ~/.zshrc' ;;
@@ -1135,7 +1173,7 @@ _dsh_romeo() {
   local cur=\${COMP_WORDS[COMP_CWORD]} prev=\${COMP_WORDS[COMP_CWORD-1]}
   case \$prev in
     --models) COMPREPLY=(\$(compgen -W "deepseek kimi kimi+deepseek" -- "\$cur")); return ;;
-    --voice) COMPREPLY=(\$(compgen -W "on off" -- "\$cur")); return ;;
+    --voice | --web) COMPREPLY=(\$(compgen -W "on off" -- "\$cur")); return ;;
     --completion) COMPREPLY=(\$(compgen -W "bash zsh" -- "\$cur")); return ;;
     --logs) COMPREPLY=(\$(compgen -W "-f" -- "\$cur")); return ;;
     --run) COMPREPLY=(\$(compgen -c -- "\$cur")); return ;;
@@ -1160,7 +1198,7 @@ cmd_version() {
 cmd_status() {
   connect
   local url f jobs id st el left nodes start reason when target procs
-  say "status ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE${ROMEO_PROJECT:+, project $ROMEO_PROJECT}${N}"
+  say "status ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE --web $DSH_ROMEO_WEB${ROMEO_PROJECT:+, project $ROMEO_PROJECT}${N}"
   url=$(gateway_url)
   if [ -n "$url" ]; then status_row gateway running "$G" "$url"; else status_row gateway stopped "$Y" "${D}the next dsh-romeo starts it${N}"; fi
   if [ "$DSH_ROMEO_GATEWAY" = fast ]; then
@@ -1174,6 +1212,12 @@ cmd_status() {
     status_row tunnel open "$G" "127.0.0.1:$PORT -> $target"
   else
     status_row tunnel closed "$Y" "${D}dsh-romeo or dsh-romeo --serve opens it${N}"
+  fi
+  if [ "$DSH_ROMEO_WEB" = on ]; then
+    case $(rustxng check) in
+      ok) status_row web on "$G" "RustXNG on the ROMEO login node" ;;
+      *) status_row web missing "$Y" "${D}the next dsh-romeo installs RustXNG on ROMEO${N}" ;;
+    esac
   fi
   printf '  %s%-25s %-8s %-8s %-5s %s%s\n' "$D" MODEL JOB STATE NODES TIME "$N" >&2
   for f in $FICHES; do
@@ -1257,6 +1301,32 @@ cmd_setup() {
   say "job clean-up installed in ~/.dsh-romeo/prestart on ROMEO"
 }
 
+# Web search on ROMEO (--web on): RustXNG's static binary on the login node, run per search by
+# share/web-search-romeo.mjs over the shared SSH connection (`rustxng mcp`, stdin/stdout): no port
+# open on a node other users share. Pinned to 0.28.0 by its SHA-256.
+RUSTXNG_SHA256=${DSH_ROMEO_RUSTXNG_SHA256:-91b8f3f9a519b1737d22d025fbe1b6b6264a00fd2ae0a1ff103476ada766b5e8}
+RUSTXNG_URL=${DSH_ROMEO_RUSTXNG_URL:-https://github.com/sahenjp/RustXNG/releases/download/v0.28.0/rustxng-v0.28.0-x86_64-unknown-linux-musl}
+# shellcheck disable=SC2088  # expanded by the shell on ROMEO
+RUSTXNG_BIN='~/.dsh-romeo/rustxng/rustxng-v0.28.0-x86_64-unknown-linux-musl'
+WEB_READY=''
+
+rustxng() {  # $1: install or check. The script's answer (ok, installed, missing, or why not)
+  rsh_stdin "bash -s -- $(printf %q "$RUSTXNG_SHA256") $(printf %q "$RUSTXNG_URL") $1" <"$ROOT/share/rustxng-install.sh" 2>&1 | tail -1
+}
+
+ensure_web() {  # never fatal: without it dsh starts, without web search
+  WEB_READY=''
+  [ "$DSH_ROMEO_WEB" = on ] || return 0
+  local out
+  out=$(rustxng install) || true
+  case $out in
+    ok) WEB_READY=1 ;;
+    installed) WEB_READY=1; say "web search installed on ROMEO ${D}(RustXNG 0.28.0, checksum verified)${N}" ;;
+    *) say "web search ${Y}unavailable${N}: RustXNG on ROMEO: ${out:-no answer}"
+       note "dsh starts without it; dsh-romeo --web off to stop trying" ;;
+  esac
+}
+
 # Before a launch: this version's fiches and job clean-up on ROMEO, when they differ (an update
 # without --setup). Fiches of your own (DSH_ROMEO_FICHE) are not touched.
 sync_fiches() {
@@ -1304,6 +1374,8 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
   [ -z "$SUB_MODEL" ] || say "$SUB_LABEL ${G}ready${N} for the subagents ${D}($SUB_MODEL)${N}"
   time_left_warning
   if [ -n "$VOICE_MODEL" ]; then open_voice_tunnel; else voice_off; fi
+  ensure_web
+  [ -z "$WEB_READY" ] || say "web search ${G}ready${N} ${D}(RustXNG on the ROMEO login node, over this SSH connection)${N}"
 }
 
 # Voice input goes straight to the Whisper job: romeollmtool's gateway cannot relay audio uploads
@@ -1408,6 +1480,10 @@ main() {
       --voice)
         [ $# -ge 2 ] || die "--voice takes on or off" "dsh-romeo --voice on --launch"
         remember DSH_ROMEO_VOICE "$2" "$VOICE_FILE"
+        shift 2 ;;
+      --web)
+        [ $# -ge 2 ] || die "--web takes on or off" "dsh-romeo --web on"
+        remember DSH_ROMEO_WEB "$2" "$WEB_FILE"
         shift 2 ;;
       --launch)
         shift

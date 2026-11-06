@@ -62,6 +62,7 @@ Host romeo
 | `dsh-romeo --setup` | copies the models' fiches and the job clean-up to ROMEO again; `--launch` also does it, for the fiches it launches, when this version's differ |
 | `dsh-romeo --models kimi ...` | the models, kept for the next runs (see below); options go in any order |
 | `dsh-romeo --voice on --launch` | voice input: dsh's microphone button, transcribed by Whisper on ROMEO (see below); kept for the next runs |
+| `dsh-romeo --web on` | web search through RustXNG on the ROMEO login node (see below); kept for the next runs |
 
 `--launch [N]` (1 to 8 jobs; Kimi: 1) combines with the others, in any order with `--models`, `--voice`, `--serve`, `--env` and `--desktop`: `dsh-romeo --desktop --launch`, `dsh-romeo --launch --run opencode` (before `--run`, whose arguments are the client's). While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
 
@@ -109,6 +110,10 @@ mkdir -p ~/.agents/skills && ln -s ~/dsh-romeo/share/skills/romeo ~/.agents/skil
 For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 
 ## Web search
+
+`dsh-romeo --web on` (remembered, like `--voice`): dsh's `web_search` tool searches through [RustXNG](https://github.com/sahenjp/RustXNG) on the ROMEO login node, nothing to install on your computer. The first start downloads RustXNG's static binary (0.28.0, 32 MB, its SHA-256 pinned in dsh-romeo and checked) into `~/.dsh-romeo/rustxng` on ROMEO. Each search runs it over dsh-romeo's SSH connection (`rustxng mcp`, on stdin and stdout): no port is opened on the login node, which other ROMEO users share, and the queries leave from ROMEO with RustXNG's `standard` profile (engines that allow automated use). About 1 s per search, 10 results. Pages are read from your computer, as before. `--web off` turns it off; `--status` and `--doctor` show it. Searches from ROMEO share the university's address with every ROMEO user: an engine may answer with fewer results some days.
+
+On your computer instead, with Docker:
 
 `install.sh --search` runs [SearXNG](https://docs.searxng.org/) in Docker on `127.0.0.1:8888` (container `dsh-romeo-searxng`, settings in `~/.config/dsh-romeo/searxng`) and sets `DSH_ROMEO_SEARXNG_URL`: dsh's `web_search` tool then searches through it. Any SearXNG with the JSON format enabled works.
 

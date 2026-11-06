@@ -4,6 +4,7 @@
 
 ## 2026-11-07
 
+- `--web on|off` (remembered): web search in dsh through RustXNG on the ROMEO login node, nothing to install on your computer. Its static binary (0.28.0) is downloaded once and checked against its pinned SHA-256; each search runs `rustxng mcp` over dsh-romeo's SSH connection, so no port is opened on the shared login node. About 1 s and 10 results per search. Works in the Web UI, `headless` and `--desktop`.
 - Tuning finished: the last A/B runs on ROMEO (NCCL queue pairs, async scheduling and a 16K prefill budget for DeepSeek; NCCL queue pairs and DCP2 for Kimi) did not beat the production fiches, which stay as they are ([Tuning](tuning.md)). Images and voice checked again on both production fiches. README: the speeds measured.
 
 ## 2026-11-06
