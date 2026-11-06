@@ -8,6 +8,7 @@ What an A/B study on ROMEO (October 2026, up to 7 jobs and 3584 concurrent reque
 |---|---|---|
 | Tensor parallelism over 8 GH200 on 2 nodes, no pipeline parallelism | without patches that `romeollmtool` cannot load, the pipeline variants of V4.1 on vLLM 0.31 garble long agent contexts (12 to 18 sessions out of 24) | fiche |
 | vLLM 0.33.0, its Humming MoE kernels compiled into each node's own `/tmp` | +19 % per agent alone, +22 % at 16 agents, +34 % at 64 (2249 against 1505 tok/s in all), half the time to first token at 64, 6.66M tokens of KV cache instead of 6.21M, against 0.31 measured at the same time (2026-11-06) | fiche |
+| DSpark draft tokens drawn from the draft's distribution (`draft_sample_method: probabilistic`), still exact rejection | +26 to +36 % per agent at 4 agents, +15 to +19 % at 16, +12 to +19 % at 64, two runs against greedy on 0.33 (2026-11-06); 4 % less KV cache | fiche |
 | DSpark speculative decoding, 2 draft tokens with the 1017 weights (3 with September's); 32 CPUs per node; `--stream-interval 4` | +61 % per agent at 16 agents per job and +70 % at 64, against 5 draft tokens and 8 CPUs; on 1017, k=2 beats k=3 by 3 to 9 % and k=4 loses up to 21 % | fiche |
 | Full 1M context, 256K output, `--gpu-memory-utilization 0.82`, images on (the vision encoder served) | the context the model was trained for; 6.34M tokens of KV cache with vision (4.7M at 0.78) and still starts on GH200s with only 77-80 GiB free | fiche |
 | DeepSeek's sampling (temperature 1.0, top_p 0.95), maximum reasoning by default | `DSH_ROMEO_EFFORT` to change it | fiche, launcher |
@@ -16,7 +17,7 @@ What an A/B study on ROMEO (October 2026, up to 7 jobs and 3584 concurrent reque
 
 With all of them, fast gateway included, 7 jobs served about 530 agents at once at 30 tokens/s each (235 multi-turn agents), against 165 for the first setup.
 
-Tried on the 1017 weights (2026-10-28) and left out: data parallelism over 2 x TP4 with expert parallelism (+28 % on 128 independent requests, but -23 % output and 3x the late time to first token on 42 multi-turn agent sessions, since each data-parallel rank has its own prefix cache), `--max-num-batched-tokens` 16K or 32K (+3 %, half the KV cache), vLLM 0.32.0 (its humming kernels fail to compile on SM90). On 0.33 (2026-11-06): DSpark's official recipe (k=5, probabilistic draft, block verification, adaptive) gives +7 to +11 % up to 16 agents and +2 % at 64, but halves the KV cache (3.36M) for the draft logits.
+Tried on the 1017 weights (2026-10-28) and left out: data parallelism over 2 x TP4 with expert parallelism (+28 % on 128 independent requests, but -23 % output and 3x the late time to first token on 42 multi-turn agent sessions, since each data-parallel rank has its own prefix cache), `--max-num-batched-tokens` 16K or 32K (+3 %, half the KV cache), vLLM 0.32.0 (its humming kernels fail to compile on SM90). On 0.33 (2026-11-06): DSpark's official recipe (k=5, probabilistic draft, block verification, adaptive) gives +7 to +11 % up to 16 agents and +2 % at 64, but halves the KV cache (3.36M): its adaptive verification needs 16 GiB more per GPU (also alone, at k=3 or k=5). Block verification at k=5 loses from 16 agents on.
 
 The fiche is [share/fiches/dsh-deepseek-v4.1-flash-1017-1m.yaml](../share/fiches/dsh-deepseek-v4.1-flash-1017-1m.yaml).
 

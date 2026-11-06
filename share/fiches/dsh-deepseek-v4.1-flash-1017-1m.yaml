@@ -36,10 +36,15 @@
 # /tmp, since 8 workers on 2 nodes compiling into one GPFS home directory
 # crashed or hung. dsh-romeo puts your ROMEO login in the paths below when it
 # installs the fiche (romeollmtool expands no variable).
-# Left out from the same night: DSpark's official recipe (k=5, probabilistic
-# draft, block verification, adaptive): +7 to +11 % up to 16 agents, +2 % at
-# 64, but half the KV cache (3.36M at --gpu-memory-utilization 0.78, needed
-# for the draft logits).
+# DSpark draws its draft tokens from the draft's distribution
+# (draft_sample_method probabilistic, not greedy): at temperature 1.0 more of
+# them are accepted, and the exact rejection test keeps the output distribution
+# unchanged. Measured twice against greedy on 0.33 (2026-11-06, same time):
+# +26/+36 % per agent at 4 agents, +15/+19 % at 16, +12/+19 % at 64, +15/+16 %
+# in all; 6.42M tokens of KV cache instead of 6.67M.
+# Left out from the same night: adaptive verification (DSpark's official
+# recipe, also k=3 or k=5 alone) needs 16 GiB more per GPU and halves the KV
+# cache; block verification at k=5 loses from 16 agents on.
 # Images: the vision encoder is served (no --language-model-only), tested on
 # ROMEO (2026-11-05): an image read correctly in 0.9 s, 6.34M tokens of KV
 # cache instead of 6.5M, 160 tok/s for one agent with DSpark.
@@ -47,7 +52,7 @@
 # ==============================================================================
 
 id: dsh-deepseek-v4.1-flash-1017-1m
-display_name: "DeepSeek-V4.1-Flash-1017 for dsh, 2 nodes TP8 + DSpark k=2, 1M context"
+display_name: "DeepSeek-V4.1-Flash-1017 for dsh, 2 nodes TP8 + DSpark k=2 (probabilistic draft), 1M context"
 verified: experimental
 verified_note: "tuned for DeepSeek Harness agents (dsh-romeo)"
 engine: vllm
@@ -100,7 +105,7 @@ vllm:
     - "--stream-interval"
     - "4"
     - "--speculative-config"
-    - '{"method":"dspark","num_speculative_tokens":2}'
+    - '{"method":"dspark","num_speculative_tokens":2,"draft_sample_method":"probabilistic"}'
 
 generation:
   temperature: 1.0
