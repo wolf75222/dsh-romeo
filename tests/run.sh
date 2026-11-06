@@ -80,6 +80,7 @@ overlay=$DSH_ROMEO_CONFIG_DIR/dsh.patch.yml
 check "overlay: served model of the fiche" grep -q "model: dsh-deepseek-v4.1-flash-1017-1m" "$overlay"
 check "overlay: 1M context from the fiche" grep -q "contextWindow: 1048576" "$overlay"
 check "overlay: output limit from the fiche" grep -q "maxTokens: 262144" "$overlay"
+check "overlay: tool results kept in proportion to the 1M context" grep -q "thresholdChars: 32768" "$overlay"
 check "overlay: tunnel port" grep -q "baseURL: http://127.0.0.1:$PORT/v1" "$overlay"
 check "overlay: no key written" bash -c "! grep -q test-key '$overlay'"
 check "overlay: no web search by default" bash -c "! grep -q searxng '$overlay'"
