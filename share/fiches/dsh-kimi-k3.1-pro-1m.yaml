@@ -14,7 +14,10 @@
 # Engine: no vLLM release has K3.1 yet (vllm-project/vllm#65685, Docker image
 # only). The engine is a personal one (engine_dir:): vLLM 0.33.0 plus the
 # Python of that PR on the precompiled kernels of its merge base, built on an
-# armgpu node by engines/build-vllm-k31.sbatch.
+# armgpu node by engines/build-vllm-k31.sbatch. This fiche uses its copy
+# vllm-k31-pp: the same engine plus vllm-project/vllm#53948 (deferred receives
+# of the sampled tokens between pipeline stages, ported onto it, branch pr53948
+# of its src/), which makes async scheduling work with pipeline parallelism.
 #
 # Weights and engine are on project r260105's storage. Other projects: stage
 # them with the same scripts and change every /project/r260105/rmdraux path below
@@ -26,9 +29,12 @@
 #   6.8 tok/s per agent at 9 agents for TP4 x PP8, TTFT halved at 16K;
 # - DCP8: the KV cache of each request spread over the 8 GPUs of a stage, 21M
 #   tokens on K3; without it about 600K, less than one 1M context;
-# - --no-async-scheduling: with PP, async scheduling decodes a request once
-#   every 4 steps and the steps do not overlap on ROMEO: +17 to +37 % per agent
-#   from 4 to 16 agents (-10 % for one agent alone);
+# - async scheduling with #53948 (2026-11-06, two runs against the same day's
+#   control): 35 against 30.8 tok/s for one agent, 16.0 against 15.4 at 4,
+#   13.6-13.9 against 10.1 at 16, 9.5 against 6.4 for 9 agents at 128K;
+#   functional tests unchanged. Without the patch async scheduling collapses
+#   from 4 agents (8.9/7.6/7.9 at 4/9/16: one decode every 4 steps), which is
+#   why K3 ran with --no-async-scheduling;
 # - fastsafetensors: weights in 6 min on cold nodes, against ~30 min;
 # - --gpu-memory-utilization 0.78: GH200s sometimes have only 77-80 GiB free
 #   at start (host pages on the HBM);
@@ -106,7 +112,7 @@ slurm:
   reservation: ""
 
 vllm:
-  engine_dir: "/project/r260105/rmdraux/engines/vllm-k31"
+  engine_dir: "/project/r260105/rmdraux/engines/vllm-k31-pp"
   model: "/project/r260105/rmdraux/kimi-k31-pro/models/Kimi-K3.1-Pro-6d0a0202"
   served_model_name: "dsh-kimi-k3.1-pro-1m"
   tensor_parallel_size: 8
@@ -132,7 +138,7 @@ vllm:
     - "16"
     - "--max-num-batched-tokens"
     - "8192"
-    - "--no-async-scheduling"
+    - "--async-scheduling"
     - "--enable-chunked-prefill"
     - "--enable-prefix-caching"
     - "--prefix-match-unit"

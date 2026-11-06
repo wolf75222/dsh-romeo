@@ -26,7 +26,7 @@ The fiche is [share/fiches/dsh-deepseek-v4.1-flash-1017-1m.yaml](../share/fiches
 
 `dsh-romeo --models kimi` (or `kimi+deepseek`) serves Kimi-K3.1-Pro instead (experimental): 1.56 TB of MXFP4 weights on 8 nodes (32 GH200, one replica within the 60-GPU account limit), 1M context, 21.1M tokens of KV cache. No vLLM release has K3.1 yet ([vllm-project/vllm#65685](https://github.com/vllm-project/vllm/pull/65685)): the fiche points to a personal engine (`engine_dir:`) and to weights on project `r260105`; other projects stage their own and change the fiche's `/project/r260105/rmdraux` paths (weights, engine, caches, `TMPDIR`).
 
-It starts from the Kimi K3 measurements (October 2026): TP8 x PP4, DCP8, `--no-async-scheduling`, fastsafetensors, Marlin for the MXFP4 experts, `--gpu-memory-utilization 0.78`. An A/B on ROMEO (2026-11-04) added breakable CUDA graphs: K3.1 has no compiled submodule, so without them every mixed step runs eager (+4 to +11 % per agent).
+It starts from the Kimi K3 measurements (October 2026): TP8 x PP4, DCP8, `--no-async-scheduling`, fastsafetensors, Marlin for the MXFP4 experts, `--gpu-memory-utilization 0.78`. An A/B on ROMEO (2026-11-04) added breakable CUDA graphs: K3.1 has no compiled submodule, so without them every mixed step runs eager (+4 to +11 % per agent). Since 2026-11-06 the engine carries vllm-project/vllm#53948, ported (`vllm-k31-pp`), and runs with async scheduling: +14 % for one agent, +35 to +38 % per agent at 16 agents, +48 % for 9 agents at 128K, in two runs; without the patch async scheduling collapses from 4 agents.
 
 | Agents (16K prompts) | 1 | 4 | 9 | 16 |
 |---|---|---|---|---|

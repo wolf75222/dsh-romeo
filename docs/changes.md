@@ -4,6 +4,7 @@
 
 ## 2026-11-06
 
+- Kimi: the engine now carries vLLM PR #53948 (ported onto the K3.1 engine, `engines/vllm-k31-pp`), and the fiche turns async scheduling on: +14 % for one agent, +35 to +38 % per agent at 16 agents (13.6-13.9 against 10.1 tok/s), +48 % for 9 agents on 128K prompts, in two runs, functional tests unchanged. Run `dsh-romeo --setup`, then relaunch the Kimi job.
 - DeepSeek: `--gpu-memory-utilization 0.88` instead of 0.82, so 9.1M tokens of KV cache instead of 6.2M at the same speed (A/B on ROMEO); FlashInfer compiles into the node's `/tmp` (a cache shared with Kimi's engine crashed a start). Run `dsh-romeo --setup`, then relaunch the DeepSeek job.
 - `install.sh --search-engine rustxng`: RustXNG (a Rust rewrite of SearXNG, same JSON API, about a fifth of the memory) on `127.0.0.1:8888` instead of SearXNG, pinned to 0.28.0 by digest. Evaluated on ROMEO against SearXNG: as relevant on 20 coding queries; offered as an option, SearXNG stays the default.
 - DeepSeek: DSpark now draws its draft tokens from the draft's distribution (`draft_sample_method: probabilistic`) instead of greedily: +12 to +19 % per agent at 64 agents and +15 to +19 % at 16 over the 0.33 fiche, in two runs, output distribution unchanged (exact rejection), 4 % less KV cache. Run `dsh-romeo --setup`, then relaunch the DeepSeek job.
