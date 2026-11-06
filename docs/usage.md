@@ -81,6 +81,10 @@ dsh's MCP client has no server by default: add one in your own dsh patch, as its
 
 The Kimi weights and its vLLM engine live on project `r260105`'s storage (see [Tuning](tuning.md#kimi-k31-pro)): its fiche works for that project's members.
 
+## Images
+
+Both models read images (their vision encoder is served): paste a screenshot or attach a picture in dsh, or send `image_url` parts to the endpoint from another client. dsh-romeo declares `input: [text, image]` for each model in dsh's provider, so dsh offers the attachment. Tested on ROMEO on each production fiche: the number in a test image read correctly, at the same speed and with about the same KV cache as text only.
+
 ## Voice input
 
 `dsh-romeo --voice on --launch` adds a third job, Whisper large-v3-turbo on 1 GPU (fiche `dsh-whisper-large-v3-turbo`, French and 98 other languages), and turns on the microphone button of dsh's input box: record, release, and the transcript lands in the box (nothing is sent by itself). dsh's own voice plugin recognizes speech on your computer with SenseVoice, which does not know French; dsh-romeo keeps its button and replaces the recognizer by Whisper on ROMEO ([share/speech-whisper-romeo.mjs](../share/speech-whisper-romeo.mjs)). Recordings go straight to the Whisper job through a second forward of the same SSH connection (`127.0.0.1:11319`, `DSH_ROMEO_VOICE_PORT`), with the job's own key: romeollmtool's gateway cannot relay audio uploads (its `python-multipart` is missing). Measured: 8 s of French speech transcribed in 0.2 s, the language given or detected. dsh does not wait for Whisper: the button works once its job is up (under 4 minutes; the first start downloads 1.6 GB into the Hugging Face cache of your ROMEO home). If the job only starts after dsh, a watcher left in the background opens the tunnel and writes the job's key (`~/.config/dsh-romeo/whisper.key`, read at each recording) once it runs: no need to restart dsh. `--voice off` removes it; `--status` and `--stop` cover its job.
