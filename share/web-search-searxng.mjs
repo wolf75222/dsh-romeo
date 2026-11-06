@@ -38,7 +38,7 @@ async function searchOne(base, opts, request, signal) {
     redirect: 'error',
     signal: signalFor(signal, opts.timeoutMs),
   })
-  if (!response.ok) throw new Error(`HTTP ${response.status} (is format=json enabled in settings.yml?)`)
+  if (!response.ok) throw new Error(`HTTP ${response.status} (is its JSON format on? SearXNG: format=json in settings.yml)`)
   const data = await response.json()
   const seen = new Set()
   const sources = []

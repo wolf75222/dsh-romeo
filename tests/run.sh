@@ -484,6 +484,11 @@ fi
 out=$(DSH_ROMEO_RLT_CHECK=/bin/sh bash "$ROOT/install.sh" --yes 2>&1); code=$?
 check "install.sh on ROMEO: says to run it on your computer" has "run install.sh on your own computer"
 check "install.sh on ROMEO: exit 1" test "$code" = 1
+out=$(bash "$ROOT/install.sh" --search-engine foo 2>&1); code=$?
+check "install.sh --search-engine: unknown engine refused" bash -c "[ $code = 2 ] && grep -q 'searxng or rustxng' <<<\"\$1\"" _ "$out"
+out=$(bash "$ROOT/install.sh" --help 2>&1)
+check "install.sh --help: RustXNG option listed" has "--search-engine rustxng"
+check "install.sh: RustXNG pinned by digest" grep -q "rustxng:0.28.0@sha256:" "$ROOT/install.sh"
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

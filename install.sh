@@ -6,6 +6,7 @@
 #   ./install.sh --host romeo          the ssh alias of ROMEO (default: romeo)
 #   ./install.sh --bin-dir DIR         where to link the dsh-romeo command (default: ~/.local/bin)
 #   ./install.sh --search              also run SearXNG in Docker for web search (127.0.0.1:8888)
+#   ./install.sh --search-engine rustxng   RustXNG instead (a lighter rewrite of SearXNG in Rust)
 #   ./install.sh --no-plugins          skip the optional dsh plugins (share/plugins.txt)
 #   ./install.sh --yes                 no questions: install dsh with npm if it is missing
 #
@@ -15,19 +16,25 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")" && pwd)
 CONFIG_DIR=${DSH_ROMEO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dsh-romeo}
 BIN_DIR=$HOME/.local/bin
-HOST='' PROJECT='' SEARCH=0 YES=0 PLUGINS=1
+HOST='' PROJECT='' SEARCH=0 YES=0 PLUGINS=1 ENGINE=searxng
 RLT_DEFAULT=/apps/romeotools/romeollmtool/romeollmtool
 
 while [ $# -gt 0 ]; do
   case $1 in
-    --project | --host | --bin-dir)
+    --project | --host | --bin-dir | --search-engine)
       [ $# -ge 2 ] || { echo "$1 needs a value (see --help)" >&2; exit 2; }
-      case $1 in --project) PROJECT=$2 ;; --host) HOST=$2 ;; --bin-dir) BIN_DIR=$2 ;; esac
+      case $1 in
+        --project) PROJECT=$2 ;;
+        --host) HOST=$2 ;;
+        --bin-dir) BIN_DIR=$2 ;;
+        --search-engine)
+          case $2 in searxng | rustxng) ENGINE=$2 SEARCH=1 ;; *) echo "--search-engine: searxng or rustxng, not '$2'" >&2; exit 2 ;; esac ;;
+      esac
       shift 2 ;;
     --search) SEARCH=1; shift ;;
     --no-plugins) PLUGINS=0; shift ;;
     --yes|-y) YES=1; shift ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -206,21 +213,31 @@ fi
 
 # ---------------------------------------------------------------- web search (optional)
 
+# RustXNG: pinned to a reviewed release (the project is young and moves fast); its standard profile
+# only, never "full" (engines whose terms forbid automated access).
+RUSTXNG_IMAGE=ghcr.io/sahenjp/rustxng:0.28.0@sha256:7e52f70aa155c6c1dd84cc160494c63cf5331a47c6b594a66564e4848ab55c13
 if [ "$SEARCH" = 1 ]; then
-  step "SearXNG in Docker (web search)"
-  command -v docker >/dev/null || die "Docker is needed for --search: https://www.docker.com/products/docker-desktop"
-  docker info >/dev/null 2>&1 || die "Docker is installed but not running: start Docker Desktop and run install.sh --search again"
-  mkdir -p "$CONFIG_DIR/searxng"
-  if [ ! -f "$CONFIG_DIR/searxng/settings.yml" ]; then
-    secret=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')   # no head: SIGPIPE + pipefail
-    sed "s/__SECRET__/$secret/" "$ROOT/share/searxng/settings.yml" >"$CONFIG_DIR/searxng/settings.yml"
+  name=$([ "$ENGINE" = rustxng ] && echo RustXNG || echo SearXNG)
+  step "$name in Docker (web search)"
+  command -v docker >/dev/null || die "Docker is needed for web search: https://www.docker.com/products/docker-desktop"
+  docker info >/dev/null 2>&1 || die "Docker is installed but not running: start Docker Desktop and run install.sh again"
+  # One engine on 127.0.0.1:8888: the other one's container goes.
+  docker rm -f dsh-romeo-searxng dsh-romeo-rustxng >/dev/null 2>&1 || true
+  if [ "$ENGINE" = rustxng ]; then
+    docker run -d --name dsh-romeo-rustxng --restart unless-stopped -p 127.0.0.1:8888:29483 \
+      "$RUSTXNG_IMAGE" --bind 0.0.0.0 --port 29483 >/dev/null
+  else
+    mkdir -p "$CONFIG_DIR/searxng"
+    if [ ! -f "$CONFIG_DIR/searxng/settings.yml" ]; then
+      secret=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')   # no head: SIGPIPE + pipefail
+      sed "s/__SECRET__/$secret/" "$ROOT/share/searxng/settings.yml" >"$CONFIG_DIR/searxng/settings.yml"
+    fi
+    docker run -d --name dsh-romeo-searxng --restart unless-stopped -p 127.0.0.1:8888:8080 \
+      -v "$CONFIG_DIR/searxng:/etc/searxng" searxng/searxng >/dev/null
   fi
-  docker rm -f dsh-romeo-searxng >/dev/null 2>&1 || true
-  docker run -d --name dsh-romeo-searxng --restart unless-stopped -p 127.0.0.1:8888:8080 \
-    -v "$CONFIG_DIR/searxng:/etc/searxng" searxng/searxng >/dev/null
   for _ in $(seq 1 30); do curl -sf -m 2 'http://127.0.0.1:8888/search?q=test&format=json' >/dev/null && break; sleep 2; done
-  curl -sf -m 5 'http://127.0.0.1:8888/search?q=test&format=json' >/dev/null && ok "SearXNG on http://127.0.0.1:8888" \
-    || printf '%s\n' "    ${R}warning:${N} SearXNG does not answer yet (docker logs dsh-romeo-searxng)"
+  curl -sf -m 5 'http://127.0.0.1:8888/search?q=test&format=json' >/dev/null && ok "$name on http://127.0.0.1:8888" \
+    || printf '%s\n' "    ${R}warning:${N} $name does not answer yet (docker logs dsh-romeo-$ENGINE)"
 fi
 
 cat <<EOF

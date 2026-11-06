@@ -18,6 +18,7 @@ git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/
 | `--host romeo` | the ssh alias of ROMEO |
 | `--bin-dir DIR` | where to link `dsh-romeo` (default `~/.local/bin`) |
 | `--search` | also runs SearXNG in Docker for web search (`127.0.0.1:8888`) |
+| `--search-engine rustxng` | RustXNG instead of SearXNG, same address (see below) |
 | `--no-plugins` | skips the optional dsh plugins below |
 | `--yes` | no questions |
 
@@ -106,6 +107,8 @@ For Claude Code, link the same folder into `~/.claude/skills/romeo`.
 ## Web search
 
 `install.sh --search` runs [SearXNG](https://docs.searxng.org/) in Docker on `127.0.0.1:8888` (container `dsh-romeo-searxng`, settings in `~/.config/dsh-romeo/searxng`) and sets `DSH_ROMEO_SEARXNG_URL`: dsh's `web_search` tool then searches through it. Any SearXNG with the JSON format enabled works.
+
+`install.sh --search-engine rustxng` runs [RustXNG](https://github.com/sahenjp/RustXNG) instead (container `dsh-romeo-rustxng`, image pinned to 0.28.0 by its digest), a rewrite of SearXNG in Rust with the same JSON API: no change on dsh's side. Measured on ROMEO (2026-11-06, 20 coding queries): about as relevant as SearXNG (better on library docs, worse on GitHub issues), a fifth of its memory (68 MB at peak), instant repeated queries from its cache. It is three weeks old and AGPL-3.0; never switch it to its `full` profile, which queries engines whose terms forbid automated access. `--search-engine searxng` (or `--search`) goes back to SearXNG.
 
 ## Settings
 
