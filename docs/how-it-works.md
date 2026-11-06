@@ -27,6 +27,8 @@ Files:
 | `share/gateway/` | the fast gateway: its start script and patch |
 | `share/plugins.txt`, `share/optional-plugins.sh` | the optional third-party dsh plugins that `install.sh` installs, turned off |
 | `share/speech-whisper-romeo.mjs` | voice input: the dsh speech provider that sends recordings to Whisper on ROMEO |
+| `share/prestart/sitecustomize.py` | runs first in each model job, on every node: drops page cache left on the GPU memory, removes stale NCCL files from `/dev/shm` |
+| `share/why-ended.sh` | run on ROMEO when a job is gone: Slurm's record and the failure lines of its log |
 | `share/web-search-searxng.mjs`, `share/searxng/` | web search: the dsh plugin and SearXNG's settings (RustXNG, `install.sh --search-engine rustxng`, speaks the same API) |
 | `share/skills/romeo/` | the `romeo` skill: Slurm jobs, Spack and GPFS from the agent, linked into `~/.agents/skills` |
 | `~/.config/dsh-romeo/` | your settings, the dsh overlay, opencode's config |

@@ -91,6 +91,10 @@ env:
   PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
   RAY_memory_monitor_refresh_ms: "0"
   HF_HUB_OFFLINE: "1"
+  # Before the job starts on each node: drop the page cache that earlier jobs left on the GPU memory
+  # (both models' files) and our stale NCCL files in /dev/shm (share/prestart/sitecustomize.py).
+  PYTHONPATH: "/home/__USER__/.dsh-romeo/prestart"
+  DSH_ROMEO_EVICT: "/project/r260105/rmdraux/kimi-k31-pro/models:/gpfs/scratch/romeotools/llmstorage/unsloth/DeepSeek-V4.1-Flash-1017"
   TRANSFORMERS_OFFLINE: "1"
   # Compilation caches on /project: faster later starts.
   HF_HOME: "/project/r260105/rmdraux/kimi-k31-pro/cache/huggingface"

@@ -56,8 +56,28 @@ check "start starts the gateway" test -e "$FAKE_ROMEO_STATE/gateway"
 
 run --setup
 check "--setup copies the fiche" test -f "$FAKE_ROMEO_HOME/.romeollmtool/configs/dsh-deepseek-v4.1-flash-1017-1m.yaml"
+check "--setup installs the job clean-up" test -f "$FAKE_ROMEO_HOME/.dsh-romeo/prestart/sitecustomize.py"
+check "job clean-up: imports cleanly, once per job" bash -c "d=\$(mktemp -d); touch \$d/w; SLURM_JOB_ID=t\$\$ DSH_ROMEO_EVICT=\$d:/nonexistent PYTHONPATH='$ROOT/share/prestart' python3 -c 'import sitecustomize' && ls /tmp/dsh-romeo-prestart-\$(id -u)-t\$\$ >/dev/null && rm -rf \$d /tmp/dsh-romeo-prestart-\$(id -u)-t\$\$"
 check "--setup: the login in the Humming cache path" grep -q "HUMMING_CACHE_DIR: \"/tmp/humming-demo/cache\"" "$FAKE_ROMEO_HOME/.romeollmtool/configs/dsh-deepseek-v4.1-flash-1017-1m.yaml"
 check "--setup: no placeholder left" bash -c "! grep -rq __USER__ '$FAKE_ROMEO_HOME/.romeollmtool/configs'"
+# A last job that failed: --status and a start say why, from sacct and the end of its log.
+mkdir -p "$FAKE_ROMEO_HOME/.romeollmtool/logs"
+echo "romeollmtool-dsh-deepseek-v4.1-flash-1017-1m 900099|FAILED|2026-11-06T14:26:49|romeo-a[031-032]|1:0" >"$FAKE_ROMEO_STATE/sacct"
+printf '%s\n' "ValueError: Free memory on device cuda:0 (73.82/95.0 GiB) on startup is less than desired" >"$FAKE_ROMEO_HOME/.romeollmtool/logs/slurm-900099.err"
+run --status
+check "status: a failed last job and why" has "failed .*14:26: a GPU had only 73.82/95.0 GiB free at start"
+run headless x
+check "start after a failed job: says why" has "no model job on ROMEO (dsh-deepseek-v4.1-flash-1017-1m): a GPU had only 73.82/95.0 GiB free"
+check "start after a failed job: what to type" has "next: dsh-romeo --launch   (another node"
+echo "romeollmtool-dsh-deepseek-v4.1-flash-1017-1m 900099|TIMEOUT|2026-11-06T14:26:49|romeo-a031|0:0" >"$FAKE_ROMEO_STATE/sacct"
+: >"$FAKE_ROMEO_HOME/.romeollmtool/logs/slurm-900099.err"
+run headless x
+check "start after a timed-out job: says so" has "it reached its time limit"
+echo "romeollmtool-dsh-deepseek-v4.1-flash-1017-1m 900099|CANCELLED by 0|2026-11-06T12:48:01|romeo-a031|0:0" >"$FAKE_ROMEO_STATE/sacct"
+rm -f "$FAKE_ROMEO_STATE/gateway"   # the gateway stopped at the end of its lifetime
+run --status
+check "status: a cancelled last job, the gateway stopped" has "last one: it was cancelled at 12:48: romeollmtool's gateway stopped"
+rm -f "$FAKE_ROMEO_STATE/sacct"
 
 run
 check "start without a job: says --launch" has "next: dsh-romeo --launch"

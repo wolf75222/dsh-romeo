@@ -81,6 +81,10 @@ env:
   HUMMING_CACHE_DIR: "/tmp/humming-__USER__/cache"
   HUMMING_TMP_DIR: "/tmp/humming-__USER__/tmp"
   FLASHINFER_WORKSPACE_BASE: "/tmp/flashinfer-__USER__"
+  # Before the job starts on each node: drop the page cache that earlier jobs left on the GPU memory
+  # (both models' files) and our stale NCCL files in /dev/shm (share/prestart/sitecustomize.py).
+  PYTHONPATH: "/home/__USER__/.dsh-romeo/prestart"
+  DSH_ROMEO_EVICT: "/project/r260105/rmdraux/kimi-k31-pro/models:/gpfs/scratch/romeotools/llmstorage/unsloth/DeepSeek-V4.1-Flash-1017"
 
 slurm:
   time: "24:00:00"

@@ -416,13 +416,56 @@ models_answer() { model_answers "$MODEL" && { [ -z "$SUB_MODEL" ] || model_answe
 # Dies when a model that does not answer has no job left to load it.
 # Squeue not answering is no reason to stop: the next poll asks again.
 check_jobs() {  # $1: what to say, $2: the command to type next
-  local jobs
-  if ! model_answers "$MODEL" && jobs=$(jobs_of_fiche "$FICHE" 2>/dev/null) && [ -z "$jobs" ]; then
-    SUBMITTED=''; die "$1 ($FICHE)" "$2"
-  fi
-  if [ -n "$SUB_FICHE" ] && ! model_answers "$SUB_MODEL" && jobs=$(jobs_of_fiche "$SUB_FICHE" 2>/dev/null) && [ -z "$jobs" ]; then
-    SUBMITTED=''; die "$1 ($SUB_FICHE)" "$2"
-  fi
+  local jobs f m
+  for f in "$FICHE" "$SUB_FICHE"; do
+    [ -n "$f" ] || continue
+    m=$MODEL; [ "$f" = "$FICHE" ] || m=$SUB_MODEL
+    if ! model_answers "$m" && jobs=$(jobs_of_fiche "$f" 2>/dev/null) && [ -z "$jobs" ]; then
+      SUBMITTED=''
+      why_ended "$f"
+      die "$1 ($f)${WHY:+: $WHY}" "${NEXT:-$2}"
+    fi
+  done
+}
+
+# Why the last job of fiche $1 ended, from Slurm's accounting and the end of its log: WHY (one line,
+# empty when nothing is known), NEXT (the command to type, empty for the caller's own), WHEN (HH:MM).
+why_ended() {
+  WHY='' NEXT='' WHEN=''
+  local out acct state end nodes code
+  out=$(rsh_stdin "bash -s -- $(printf %q "romeollmtool-$1")" <"$ROOT/share/why-ended.sh" 2>/dev/null) || return 0
+  acct=$(printf '%s
+' "$out" | sed -n 's/^acct=//p')
+  [ -n "$acct" ] || return 0
+  IFS='|' read -r _ state end nodes code <<<"$acct"
+  WHEN=$(printf '%s' "$end" | sed -n 's/.*T\([0-9][0-9]:[0-9][0-9]\).*/\1/p')
+  local hits
+  hits=$(printf '%s
+' "$out" | sed -n 's/^hit=//p')
+  case $hits in
+    *"Free memory on device"*)
+      WHY="a GPU had only $(printf '%s
+' "$hits" | grep -m1 -oE '[0-9.]+/[0-9.]+ GiB' | head -1) free at start (memory an earlier job left on $nodes)"
+      NEXT="dsh-romeo --launch   (another node; dsh-romeo --setup first installs the clean-up that frees it)" ;;
+    *"No available memory for the cache blocks"*)
+      WHY="no GPU memory left for the KV cache after the weights"
+      NEXT="dsh-romeo --setup, then dsh-romeo --launch   (the fiche's memory settings)" ;;
+    *"CUDA out of memory"* | *OutOfMemoryError*)
+      WHY="the GPUs ran out of memory${nodes:+ on $nodes}"
+      NEXT="dsh-romeo --launch   (again; dsh-romeo --logs for the details)" ;;
+    *)
+      case $state in
+        TIMEOUT*) WHY="it reached its time limit (DSH_ROMEO_TIME=$DSH_ROMEO_TIME)"; NEXT="dsh-romeo --launch" ;;
+        OUT_OF_ME*) WHY="the node ran out of host memory"; NEXT="dsh-romeo --launch" ;;
+        NODE_FAIL*) WHY="its node $nodes failed"; NEXT="dsh-romeo --launch" ;;
+        CANCELLED*)
+          WHY="it was cancelled at ${WHEN:-?}"
+          [ -n "$(gateway_url)" ] || WHY="$WHY: romeollmtool's gateway stopped (24 h lifetime), which cancels every job"
+          NEXT="dsh-romeo --launch" ;;
+        FAILED* | *) [ -n "$state" ] && WHY="Slurm says $state, exit $code$(printf '%s
+' "$hits" | grep -m1 -E 'NCCL|Address|No such file' | sed 's/^/: /')" ;;
+      esac ;;
+  esac
 }
 
 wait_for_model() {
@@ -1006,7 +1049,11 @@ cmd_status() {
       continue
     fi
     if [ -z "$jobs" ]; then
-      printf '  %-25s %-8s %s%-8s%s %-5s %s\n' "$(label_of "$f")" - "$Y" "no job" "$N" - "${D}dsh-romeo --launch${N}" >&2
+      why_ended "$f"
+      case $WHY in
+        '' | "it was cancelled"*"gateway"* | "it was cancelled at"*) printf '  %-25s %-8s %s%-8s%s %-5s %s\n' "$(label_of "$f")" - "$Y" "no job" "$N" - "${D}dsh-romeo --launch${WHY:+ (last one: $WHY)}${N}" >&2 ;;
+        *) printf '  %-25s %-8s %s%-8s%s %-5s %s\n' "$(label_of "$f")" - "$R" "failed" "$N" - "${WHEN:+$WHEN: }$WHY" >&2 ;;
+      esac
       continue
     fi
     while read -r id st el left nodes start reason; do
@@ -1070,6 +1117,10 @@ cmd_setup() {
       || die "cannot write fiche $(basename "$f" .yaml) on ROMEO: $(printf '%s\n' "$out" | tail -1)" "ssh $HOST 'df -h ~'   (ROMEO home full?)"
     say "fiche $(basename "$f" .yaml) installed in ~/.romeollmtool/configs on ROMEO"
   done
+  # The clean-up the fiches run before a job starts (their PYTHONPATH).
+  out=$(rsh_stdin "mkdir -p ~/.dsh-romeo/prestart && cat > ~/.dsh-romeo/prestart/sitecustomize.py" <"$ROOT/share/prestart/sitecustomize.py" 2>&1) \
+    || die "cannot write ~/.dsh-romeo/prestart on ROMEO: $(printf '%s\n' "$out" | tail -1)" "ssh $HOST 'df -h ~'"
+  say "job clean-up installed in ~/.dsh-romeo/prestart on ROMEO"
 }
 
 prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is open, ROMEO_LLM_KEY is set.
