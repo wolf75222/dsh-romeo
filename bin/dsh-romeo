@@ -618,6 +618,17 @@ YAML
     model: $MODEL
     reasoningEffort: "$DSH_ROMEO_EFFORT"
 YAML
+    # dsh's pruner cuts any tool result over 8 KiB down to 5 KiB as the context nears its limit, whatever the window: in a
+    # long run at 1M, that took the middle out of the instructions the agent read first. Its proportions, scaled to the window.
+    if [ "$CONTEXT" -gt 262144 ]; then
+      cat <<YAML
+- id: tool-result-pruner
+  config:
+    thresholdChars: $((CONTEXT / 32))
+    headChars: $((CONTEXT / 64))
+    tailChars: $((CONTEXT / 256))
+YAML
+    fi
     [ -z "$SUB_MODEL" ] || helper_patch "${1:-web}" "${2:-}" "${3:-}"
     [ -z "$VOICE_FICHE" ] || voice_patch "${3:-${1:-web}}"
     if [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
