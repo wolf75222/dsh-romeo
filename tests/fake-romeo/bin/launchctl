@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Fake launchctl: setenv/unsetenv recorded in $FAKE_ROMEO_STATE/launchctl.
+echo "$*" >>"$FAKE_ROMEO_STATE/launchctl"

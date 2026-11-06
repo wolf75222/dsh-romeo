@@ -380,13 +380,8 @@ launch_jobs() {  # $1 jobs of the agent's model, one of the subagents' and one o
 # $1 the fiche, $2 the weights path, $3 the model's name.
 check_weights() {
   case $2 in /*) ;; *) return 0 ;; esac  # a Hugging Face id: romeollmtool's business
-  local rc=0 owner
-  # 0 readable; 3 a directory on the way that this login cannot open; 4 missing. An unknown
-  # file system (not ROMEO's) says nothing: 0.
-  rsh "p=$(printf %q "$2"); [ -r \"\$p/config.json\" ] && exit 0; a=\$p
-    while [ \"\$a\" != / ] && [ ! -e \"\$a\" ]; do a=\$(dirname \"\$a\"); done
-    [ \"\$a\" = / ] && exit 0; [ -x \"\$a\" ] && [ -r \"\$a\" ] || exit 3; exit 4" || rc=$?
-  lost "$rc"
+  weights_rc "$2"
+  local rc=$WRC owner
   owner=$(printf '%s' "$2" | sed -n 's|^/project/\([^/]*\)/.*|\1|p')
   local where=''
   [ -z "$owner" ] || where=": they are in the storage of project $owner, open to its members only"
@@ -397,6 +392,15 @@ check_weights() {
     4) die "$3's weights are not on ROMEO at $2 (moved or deleted?)" "dsh-romeo --setup   (an updated fiche), then dsh-romeo --doctor" ;;
     *) die "cannot check $3's weights on ROMEO (exit $rc)" "dsh-romeo --doctor" ;;
   esac
+}
+
+weights_rc() {  # $1 a weights path: WRC 0 readable, 3 a directory on the way this login cannot open, 4 missing
+  # An unknown file system (not ROMEO's) says nothing: 0.
+  WRC=0
+  rsh "p=$(printf %q "$1"); [ -r \"\$p/config.json\" ] && exit 0; a=\$p
+    while [ \"\$a\" != / ] && [ ! -e \"\$a\" ]; do a=\$(dirname \"\$a\"); done
+    [ \"\$a\" = / ] && exit 0; [ -x \"\$a\" ] && [ -r \"\$a\" ] || exit 3; exit 4" </dev/null || WRC=$?
+  lost "$WRC"
 }
 
 launch_one() {
@@ -856,11 +860,17 @@ run_desktop() {
   write_overlay web "$app_dsh" desktop
   local dir=$PROFILES/desktop
   local patch=$dir/cordis.patch.yml
-  mkdir -p "$dir"
+  mkdir -p "$dir" 2>/dev/null || die "cannot create $dir (the app's profile)" "ls -ld $HOME/.dsh   (owned by another user? sudo was used once?)"
+  [ -w "$dir" ] && { [ ! -e "$patch" ] || [ -w "$patch" ]; } \
+    || die "cannot write the app's profile in $dir" "ls -l $dir   (owned by another user? sudo was used once?)"
   if [ -f "$patch" ] && ! grep -q '^# Written by dsh-romeo' "$patch" && grep -q -v -E '^[[:space:]]*(#|\[\][[:space:]]*$|$)' "$patch" \
      && [ ! -e "$patch.before-dsh-romeo" ]; then
     cp "$patch" "$patch.before-dsh-romeo"
     note "a copy of your desktop patch before dsh-romeo: $patch.before-dsh-romeo"
+  fi
+  if desktop_current "$patch"; then
+    say "$DESKTOP_APP ${G}already runs on ROMEO${N} ${D}(same key, same settings): not restarted, the tunnel is open${N}"
+    return 0
   fi
   # The app reads its environment at start only, and rewrites its profile while it runs: a running
   # copy is quit before the patch is written (its sessions are kept).
@@ -876,9 +886,37 @@ run_desktop() {
   local tmp
   tmp=$(mktemp "$patch.XXXXXX")  # two --desktop at once never mix their halves of the app's settings
   merge_desktop_patch "$patch" >"$tmp"
-  mv "$tmp" "$patch"
+  mv "$tmp" "$patch" || die "cannot write $patch" "ls -l $dir   (the app's profile folder)"
   say "opening $DESKTOP_APP ${D}(the tunnel stays open until dsh-romeo --stop)${N}"
-  open -a "$DESKTOP_APP" --env "ROMEO_LLM_KEY=$ROMEO_LLM_KEY"
+  local out
+  out=$(open -a "$DESKTOP_APP" --env "ROMEO_LLM_KEY=$ROMEO_LLM_KEY" 2>&1) \
+    || die "macOS did not open $DESKTOP_APP: ${out:-no reason given}" "open -a '$DESKTOP_APP'   (macOS's own message; reinstall the app if it is damaged)"
+  remember_desktop_key
+  # The app should be up within 30 s: a crash at start or a macOS dialog (first opening) shows here.
+  local _
+  for _ in $(seq 1 "${DSH_ROMEO_APP_WAIT:-30}"); do pgrep -qf "/$DESKTOP_APP.app/Contents/MacOS/" && return 0; sleep 1; done
+  say "${Y}$DESKTOP_APP is not running 30 s after opening${N}: a macOS dialog may wait for you"
+  note "the tunnel is open: open the app again by hand once it is fixed, then dsh-romeo --desktop"
+}
+
+# The key, for apps opened later from the Dock or Spotlight (they do not get this shell's
+# environment): launchd's environment for this session, until dsh-romeo --stop or a restart.
+remember_desktop_key() {
+  command -v launchctl >/dev/null || return 0
+  launchctl setenv ROMEO_LLM_KEY "$ROMEO_LLM_KEY" 2>/dev/null || true
+  (umask 077; printf '%s\n' "$ROMEO_LLM_KEY" | cksum >"$CONFIG_DIR/desktop.key-sum")
+}
+
+# The app already runs with this key and this patch (after a sleep, the tunnel only had to be
+# reopened): no restart, the app keeps its windows.
+desktop_current() {  # $1 the app's patch: 0 when nothing would change
+  pgrep -qf "/$DESKTOP_APP.app/Contents/MacOS/" || return 1
+  [ "$(printf '%s\n' "$ROMEO_LLM_KEY" | cksum)" = "$(cat "$CONFIG_DIR/desktop.key-sum" 2>/dev/null)" ] || return 1
+  local tmp rc=1
+  tmp=$(mktemp "$1.XXXXXX")
+  merge_desktop_patch "$1" >"$tmp" && cmp -s "$tmp" "$1" && rc=0
+  rm -f "$tmp"
+  return $rc
 }
 
 # ---------------------------------------------------------------- other clients
@@ -1051,7 +1089,17 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
   if [ -n "$ROMEO_PROJECT" ]; then pass project "$ROMEO_PROJECT"; else fail project "none: $ROOT/install.sh --project rXXXXXX"; fi
   for f in $FICHES; do
     if rlt catalog show "$f" >/dev/null 2>&1 </dev/null; then pass fiche "$f"
-    else fail fiche "$f is not on ROMEO: dsh-romeo --setup"; fi
+    else fail fiche "$f is not on ROMEO: dsh-romeo --setup"; continue; fi
+    # The weights: a login outside the project that stores them (Kimi's) cannot launch that model.
+    local w
+    w=$(rlt catalog show "$f" 2>/dev/null </dev/null | awk '/^vllm:/ { v = 1; next } /^[^ -]/ { v = 0 } v && /^  model:/ { gsub(/["\047]/, "", $2); print $2; exit }') || true
+    case $w in /*) ;; *) continue ;; esac
+    weights_rc "$w"
+    case $WRC in
+      0) pass weights "$(label_of "$f")" ;;
+      3) fail weights "$(label_of "$f"): your login cannot read $w$(printf '%s' "$w" | sed -n 's|^/project/\([^/]*\)/.*|, open to project \1 members only: --models deepseek|p')" ;;
+      *) fail weights "$(label_of "$f"): not found at $w" ;;
+    esac
   done
   local key url code=''
   key=$(rlt gateway show-key 2>/dev/null </dev/null | tr -d '[:space:]') || true
@@ -1177,7 +1225,8 @@ cmd_stop() {  # the jobs of every dsh-romeo model, also those of a choice of mod
   fi
   disconnect
   stop_voice_watch
-  rm -f "$CTL.target" "$CTL.voice" "$VOICE_KEY_FILE"
+  rm -f "$CTL.target" "$CTL.voice" "$VOICE_KEY_FILE" "$CONFIG_DIR/desktop.key-sum"
+  if [ "$(uname)" = Darwin ] && command -v launchctl >/dev/null; then launchctl unsetenv ROMEO_LLM_KEY 2>/dev/null || true; fi
   # Connections opened with an earlier ROMEO_SSH_HOST: they would keep holding the ports.
   local s s_host
   [ -n "${DSH_ROMEO_SOCKET:-}" ] || for s in "$HOME"/.ssh/dsh-romeo-*.sock; do

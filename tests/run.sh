@@ -114,6 +114,10 @@ chmod 755 "$T/proj/r9"
 check "--launch: unreadable weights, said before any job" has "cannot read the weights of DeepSeek-V4.1-Flash-1017 ($T/proj/r9/w)"
 check "--launch: unreadable weights, what to type" has "next: dsh-romeo --models deepseek --launch"
 check "--launch: unreadable weights, no job" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs' 2>/dev/null"
+chmod 000 "$T/proj/r9"
+DSH_ROMEO_FICHE=my-locked run --doctor
+chmod 755 "$T/proj/r9"
+check "--doctor: unreadable weights, a failed row" has "weights .*failed .*your login cannot read $T/proj/r9/w"
 DSH_ROMEO_FICHE=my-gone run --launch
 check "--launch: missing weights, said" has "weights are not on ROMEO at $T/missing/w"
 rm -f "$FAKE_ROMEO_HOME/.romeollmtool/configs/my-locked.yaml" "$FAKE_ROMEO_HOME/.romeollmtool/configs/my-gone.yaml"
@@ -229,6 +233,21 @@ if [ "$(uname)" = Darwin ]; then
   run --models deepseek --status
   FAKE_NO_APP=1 HOME=$T/home run --desktop
   check "--desktop without the app: says so" has "app is not installed"
+  touch "$FAKE_ROMEO_STATE/app-running"
+  HOME=$T/home run --desktop
+  check "--desktop: the key for apps opened later" grep -q "setenv ROMEO_LLM_KEY test-key" "$FAKE_ROMEO_STATE/launchctl"
+  rm -f "$FAKE_ROMEO_STATE/osascript-call"
+  HOME=$T/home run --desktop
+  check "--desktop again, nothing changed: the app is not restarted" has "already runs on ROMEO"
+  check "--desktop again, nothing changed: no quit" test ! -e "$FAKE_ROMEO_STATE/osascript-call"
+  rm -f "$FAKE_ROMEO_STATE/app-running"
+  FAKE_OPEN_FAIL=1 HOME=$T/home run --desktop
+  check "--desktop: open refused, macOS's reason" has "macOS did not open DeepSeek Harness: LSOpenURLsWithRole"
+  FAKE_APP_CRASH=1 DSH_ROMEO_APP_WAIT=1 HOME=$T/home run --desktop
+  check "--desktop: an app that does not start is said" has "is not running 30 s after opening"
+  HOME=$T/home run --stop
+  check "--stop: the key unset for later apps" grep -q "unsetenv ROMEO_LLM_KEY" "$FAKE_ROMEO_STATE/launchctl"
+  run --launch
 fi
 
 # A refused forward with the port free: once more on a new connection, then ssh's reason.
@@ -545,6 +564,8 @@ check "minutes of Slurm durations" bash -c 'eval "$(sed -n "/^minutes_of()/,/^}/
 run --help
 check "--help: the everyday commands first" has "^Every day"
 check "--help: what to run when something is wrong" has "dsh-romeo --doctor"
+run --doctor
+check "--doctor: the weights checked" has "weights .*ok .*DeepSeek-V4.1-Flash-1017"
 
 for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
   out=$(bash -n "$f" 2>&1); check "syntax: $(basename "$f")" test -z "$out"

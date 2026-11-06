@@ -5,6 +5,8 @@
 ## 2026-11-06
 
 - More errors caught before they cost a wait, each with what to type: Kimi's weights not readable by your login (checked before the job is submitted), a project Slurm refuses, a full ROMEO home, a `DSH_ROMEO_TIME` that is not `HH:MM:SS` up to 24 h, and a queued job that would never start (GPU hours used up, time over the allowed one, held). The queue reasons are said in words (the project's GPU limit reached, no free nodes, maintenance). A model that loads much longer than usual is reported once, and a job with less than 30 min left is said when dsh opens.
+- `--desktop`: an app that already runs with the same key and settings is not restarted (after a sleep, only the tunnel is reopened); macOS refusing to open the app, an app that does not start within 30 s, and an app profile that cannot be written are said with what to do. The key is also given to launchd until `--stop`, so the app works when opened later from the Dock.
+- `--doctor` checks that your login can read each model's weights: Kimi's are open to project r260105's members only.
 - `--launch` installs the fiches it launches and the job clean-up when this version's differ from those on ROMEO: an update no longer needs `--setup` first.
 - Shorter `--help` and README: the four everyday commands first, then the options, the other clients, and what to run when something is wrong.
 - Kimi: DCP4 with all-to-all exchanges instead of DCP8, so each request's KV exchanges stay inside a node: 38 tok/s for one agent (35), 23.5 at 4 agents (15.9), 29 at 9 (12-18), 14 at 9 agents on 128K prompts (9.5), in two runs plus a staggered grid, functional tests unchanged. The KV cache goes from 21.1M to 11M tokens, still 10 full 1M contexts. Run `dsh-romeo --setup`, then relaunch the Kimi job.

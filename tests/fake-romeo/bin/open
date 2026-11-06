@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 # Fake macOS open: -Ra checks the app is installed (FAKE_NO_APP=1: not installed); otherwise records the call.
 [ "$1" = -Ra ] && { [ -z "${FAKE_NO_APP:-}" ]; exit; }
+[ -n "${FAKE_OPEN_FAIL:-}" ] && { echo "LSOpenURLsWithRole() failed with error -10810" >&2; exit 1; }
 echo "args: $*" >"$FAKE_ROMEO_STATE/open-call"
+[ -n "${FAKE_APP_CRASH:-}" ] || touch "$FAKE_ROMEO_STATE/app-running"  # the app starts
