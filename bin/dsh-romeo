@@ -1065,7 +1065,8 @@ cmd_setup() {
   local out
   out=$(rsh "mkdir -p ~/.romeollmtool/configs" 2>&1) || die "cannot create ~/.romeollmtool/configs on ROMEO: $out" "ssh $HOST 'df -h ~'   (ROMEO home full?)"
   for f in "$ROOT"/share/fiches/*.yaml; do
-    out=$(rsh_stdin "cat > ~/.romeollmtool/configs/$(basename "$f")" <"$f" 2>&1) \
+    # __USER__ in a fiche: your ROMEO login (romeollmtool writes fiche values as they are).
+    out=$(rsh_stdin "sed \"s/__USER__/\$USER/g\" > ~/.romeollmtool/configs/$(basename "$f")" <"$f" 2>&1) \
       || die "cannot write fiche $(basename "$f" .yaml) on ROMEO: $(printf '%s\n' "$out" | tail -1)" "ssh $HOST 'df -h ~'   (ROMEO home full?)"
     say "fiche $(basename "$f" .yaml) installed in ~/.romeollmtool/configs on ROMEO"
   done

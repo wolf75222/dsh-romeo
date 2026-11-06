@@ -9,8 +9,8 @@
 # September V4.1-Flash). vLLM renders the prompts with its own deepseek_v41
 # encoder, so the chat_template.jinja that unsloth added is not used.
 #
-# Same engine as the catalog fiche deepseek-v4.1-flash-vllm (1 node, 262K
-# context), tuned for coding agents:
+# The catalog fiche deepseek-v4.1-flash-vllm (1 node, 262K context), on vLLM
+# 0.33 and tuned for coding agents:
 # - tensor parallelism over 8 GPUs on 2 nodes, no pipeline parallelism (the
 #   pipeline variants of V4.1 on vLLM 0.31 corrupt long agent contexts);
 # - the full 1,048,576-token context and 256K tokens of output;
@@ -28,6 +28,18 @@
 # DP rank has its own prefix cache), --max-num-batched-tokens 16K/32K (+3 %,
 # but half the KV cache), vLLM 0.32.0 (its humming kernels fail to compile on
 # SM90).
+# vLLM 0.33.0 (2026-11-06, same settings, measured against 0.31 at the same
+# time, 16K prompts): +19 % per agent alone, +22 % at 16 agents, +34 % at 64
+# (2249 against 1505 tok/s in all), half the time to first token at 64, 6.66M
+# tokens of KV cache instead of 6.21M; same functional tests. Its Humming MoE
+# kernels compile at the first start into HUMMING_CACHE_DIR: on each node's own
+# /tmp, since 8 workers on 2 nodes compiling into one GPFS home directory
+# crashed or hung. dsh-romeo puts your ROMEO login in the paths below when it
+# installs the fiche (romeollmtool expands no variable).
+# Left out from the same night: DSpark's official recipe (k=5, probabilistic
+# draft, block verification, adaptive): +7 to +11 % up to 16 agents, +2 % at
+# 64, but half the KV cache (3.36M at --gpu-memory-utilization 0.78, needed
+# for the draft logits).
 # Images: the vision encoder is served (no --language-model-only), tested on
 # ROMEO (2026-11-05): an image read correctly in 0.9 s, 6.34M tokens of KV
 # cache instead of 6.5M, 160 tok/s for one agent with DSpark.
@@ -55,6 +67,9 @@ env:
   NCCL_NVLS_ENABLE: "0"
   VLLM_ALLREDUCE_USE_FLASHINFER: "0"
   VLLM_ALLREDUCE_USE_SYMM_MEM: "0"
+  # Node-local, one directory per user (see above).
+  HUMMING_CACHE_DIR: "/tmp/humming-__USER__/cache"
+  HUMMING_TMP_DIR: "/tmp/humming-__USER__/tmp"
 
 slurm:
   time: "24:00:00"
@@ -66,7 +81,7 @@ slurm:
   reservation: ""
 
 vllm:
-  version: "0.31.0"
+  version: "0.33.0"
   model: "/gpfs/scratch/romeotools/llmstorage/unsloth/DeepSeek-V4.1-Flash-1017"
   served_model_name: "dsh-deepseek-v4.1-flash-1017-1m"
   tensor_parallel_size: 8

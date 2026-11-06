@@ -56,6 +56,8 @@ check "start starts the gateway" test -e "$FAKE_ROMEO_STATE/gateway"
 
 run --setup
 check "--setup copies the fiche" test -f "$FAKE_ROMEO_HOME/.romeollmtool/configs/dsh-deepseek-v4.1-flash-1017-1m.yaml"
+check "--setup: the login in the Humming cache path" grep -q "HUMMING_CACHE_DIR: \"/tmp/humming-demo/cache\"" "$FAKE_ROMEO_HOME/.romeollmtool/configs/dsh-deepseek-v4.1-flash-1017-1m.yaml"
+check "--setup: no placeholder left" bash -c "! grep -rq __USER__ '$FAKE_ROMEO_HOME/.romeollmtool/configs'"
 
 run
 check "start without a job: says --launch" has "next: dsh-romeo --launch"
