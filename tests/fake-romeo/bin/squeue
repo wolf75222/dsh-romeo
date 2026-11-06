@@ -8,8 +8,8 @@ while [ $# -gt 0 ]; do case $1 in -n) name=$2; shift 2 ;; *) shift ;; esac; done
 while read -r id fiche _; do
   state=RUNNING reason=None
   # FAKE_ROMEO_STATE/pending lists the fiches whose jobs wait for GPUs.
-  grep -qx "$fiche" "$FAKE_ROMEO_STATE/pending" 2>/dev/null && state=PENDING reason=Resources
+  grep -qx "$fiche" "$FAKE_ROMEO_STATE/pending" 2>/dev/null && state=PENDING reason=${FAKE_REASON:-Resources}
   start=N/A; [ "$state" = PENDING ] && start=${FAKE_START:-N/A}
-  [ -z "$name" ] || [ "$name" = "romeollmtool-$fiche" ] && echo "$id $state 0:42 7:59:18 2 $start $reason"
+  [ -z "$name" ] || [ "$name" = "romeollmtool-$fiche" ] && echo "$id $state ${FAKE_ELAPSED:-0:42} ${FAKE_LEFT:-7:59:18} 2 $start $reason"
 done <"$FAKE_ROMEO_STATE/jobs"
 exit 0  # squeue exits 0 when no job matches

@@ -89,6 +89,32 @@ check "--launch without a project: says so" has "no project code"
 run --launch 9
 check "--launch 9: refused" has "--launch takes 1 to 8 jobs"
 
+DSH_ROMEO_TIME=8h run --launch
+check "--launch: DSH_ROMEO_TIME not HH:MM:SS, refused" has "DSH_ROMEO_TIME: HH:MM:SS up to 24:00:00, not '8h'"
+DSH_ROMEO_TIME=25:00:00 run --launch
+check "--launch: DSH_ROMEO_TIME over 24 h, refused" has "not '25:00:00'"
+check "--launch: refused time submits nothing" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs' 2>/dev/null"
+fiche=$FAKE_ROMEO_HOME/.romeollmtool/configs/dsh-deepseek-v4.1-flash-1017-1m.yaml
+echo "# an older version" >>"$fiche"
+DSH_ROMEO_TIME=bad run --launch
+check "--launch: an outdated fiche on ROMEO is updated" has "updated on ROMEO .*dsh-deepseek-v4.1-flash-1017-1m"
+check "--launch: the fiche is this version's again" bash -c "! grep -q 'an older version' '$fiche'"
+DSH_ROMEO_TIME=bad run --launch
+check "--launch: an up-to-date fiche is left alone" lacks "updated on ROMEO"
+# A fiche whose weights this login cannot read (Kimi's, for a login outside project r260105).
+mkdir -p "$T/proj/r9/w" "$T/missing"
+sed "s|^  model: .*|  model: \"$T/proj/r9/w\"|" "$fiche" >"$FAKE_ROMEO_HOME/.romeollmtool/configs/my-locked.yaml"
+sed "s|^  model: .*|  model: \"$T/missing/w\"|" "$fiche" >"$FAKE_ROMEO_HOME/.romeollmtool/configs/my-gone.yaml"
+chmod 000 "$T/proj/r9"
+DSH_ROMEO_FICHE=my-locked run --launch
+chmod 755 "$T/proj/r9"
+check "--launch: unreadable weights, said before any job" has "cannot read the weights of DeepSeek-V4.1-Flash-1017 ($T/proj/r9/w)"
+check "--launch: unreadable weights, what to type" has "next: dsh-romeo --models deepseek --launch"
+check "--launch: unreadable weights, no job" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs' 2>/dev/null"
+DSH_ROMEO_FICHE=my-gone run --launch
+check "--launch: missing weights, said" has "weights are not on ROMEO at $T/missing/w"
+rm -f "$FAKE_ROMEO_HOME/.romeollmtool/configs/my-locked.yaml" "$FAKE_ROMEO_HOME/.romeollmtool/configs/my-gone.yaml"
+
 run --launch
 check "--launch: job submitted" has "model job 900001 submitted"
 check "--launch: waits, then ready" has "ready"
@@ -395,9 +421,10 @@ check "voice off: no voice forward noted" test ! -e "$DSH_ROMEO_SOCKET.voice"
 check "voice off: its running job said" has "Whisper job .* still runs"
 run --voice off --stop
 # Edited config values: quotes stay valid YAML, spaces and ';' stay one argument on ROMEO.
-DSH_ROMEO_SEARXNG_URL='http://127.0.0.1:8888/?q="x"' DSH_ROMEO_TIME="08:00:00; touch $FAKE_ROMEO_HOME/injected" run --launch headless x
+DSH_ROMEO_TIME="08:00:00; touch $FAKE_ROMEO_HOME/injected" run --launch headless x
+check "config with ';': refused, not run on ROMEO" bash -c "[ $code = 1 ] && [ ! -e '$FAKE_ROMEO_HOME/injected' ]"
+DSH_ROMEO_SEARXNG_URL='http://127.0.0.1:8888/?q="x"' run --launch headless x
 check "config with quotes: SearXNG URL single-quoted" grep -q "baseURL: 'http://127.0.0.1:8888/?q=\"x\"'" "$overlay"
-check "config with ';': not run on ROMEO" test ! -e "$FAKE_ROMEO_HOME/injected"
 run --stop
 # A login script on ROMEO that prints: --env keeps only exports, the job list keeps only jobs.
 run --launch
@@ -492,6 +519,29 @@ out=$(printf 'ROMEO_SSH_HOST=romeo\nROMEO_PROJECT=r000000\n' >"$T/skill-config";
   env -u ROMEO_PROJECT ROMEO_WHERE=remote XDG_CONFIG_HOME=$T/xdg bash -c '. "$1"; echo "project=$ROMEO_PROJECT"; R "echo remote-user=\$USER"' _ "$SKILL/scripts/env.sh" 2>&1)
 check "skill env.sh: project from dsh-romeo's config" has "project=r000000"
 check "skill env.sh: R runs over ssh" has "remote-user=demo"
+
+# Queue reasons in words, and jobs that would never start by waiting.
+cp "$FAKE_ROMEO_STATE/jobs" "$T/jobs.saved" 2>/dev/null || : >"$T/jobs.saved"
+echo "990001 dsh-deepseek-v4.1-flash-1017-1m 9999999999" >"$FAKE_ROMEO_STATE/jobs"
+echo dsh-deepseek-v4.1-flash-1017-1m >"$FAKE_ROMEO_STATE/pending"
+DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off FAKE_REASON=AssocGrpGRES run --status
+check "status: the project's GPU limit, in words" has "the project's GPU limit is reached"
+DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off FAKE_REASON=AssocGrpGRESMinutes run --serve
+check "wait: GPU hours used up stops the wait" has "project r000000 has used up its GPU hours"
+check "wait: GPU hours used up, exit 1" test "$code" = 1
+DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off FAKE_REASON=JobHeldUser run --serve
+check "wait: a held job stops the wait" has "next: ssh romeo scontrol release 990001"
+rm -f "$FAKE_ROMEO_STATE/pending"
+echo "990001 dsh-deepseek-v4.1-flash-1017-1m 1" >"$FAKE_ROMEO_STATE/jobs"
+DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off FAKE_LEFT=12:00 run --serve
+check "ready: a job that ends soon is said" has "model job ends in 12 min"
+DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run --serve
+check "ready: a job with hours left says nothing" lacks "ends in"
+cp "$T/jobs.saved" "$FAKE_ROMEO_STATE/jobs"
+check "minutes of Slurm durations" bash -c 'eval "$(sed -n "/^minutes_of()/,/^}/p" "$1")"; [ "$(minutes_of 1-02:03:04)" = 1563 ] && [ "$(minutes_of 12:00)" = 12 ] && [ "$(minutes_of 2:00:00)" = 120 ] && [ "$(minutes_of N/A)" = 0 ]' _ "$ROOT/bin/dsh-romeo"
+run --help
+check "--help: the everyday commands first" has "^Every day"
+check "--help: what to run when something is wrong" has "dsh-romeo --doctor"
 
 for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
   out=$(bash -n "$f" 2>&1); check "syntax: $(basename "$f")" test -z "$out"

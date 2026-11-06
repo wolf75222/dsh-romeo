@@ -1,35 +1,29 @@
 #!/usr/bin/env bash
 # dsh-romeo: DeepSeek Harness (dsh) on your computer, DeepSeek-V4.1-Flash-1017 or Kimi-K3.1-Pro on ROMEO's GPUs.
 #
-# Usage: dsh-romeo [--models M] [--voice on|off] [--launch [N]] [COMMAND]
+# Every day
+#   dsh-romeo --launch            start the model on ROMEO, wait until it answers, open dsh
+#   dsh-romeo                     open dsh on the model job already running
+#   dsh-romeo --status            what runs on ROMEO, and why the last job ended
+#   dsh-romeo --stop              stop the model jobs (they use GPU hours) and the tunnel
 #
-# Start
-#   dsh-romeo                     open the dsh Web UI on the running model job
-#   dsh-romeo --launch [N]        submit N model jobs (1-8, default 1), wait, then open dsh
-#   dsh-romeo --desktop           the DeepSeek Harness desktop app (macOS) instead of the Web UI
-#   dsh-romeo PROFILE [ARGS]      any dsh profile: web --port 3000, headless "a task"
-#
-# Other clients
-#   dsh-romeo --run CMD [ARGS]    opencode, codex, claude, aider, python... on the ROMEO model
-#   dsh-romeo --serve             only the model and the tunnel, then print the endpoint
-#   dsh-romeo --env               the endpoint as shell variables: eval "$(dsh-romeo --env)"
-#
-# Jobs
-#   dsh-romeo --status            gateway, tunnel and model jobs, with their queue start time
-#   dsh-romeo --stop              cancel every dsh-romeo model job (any --models), close the tunnel
-#   dsh-romeo --setup             copy the model fiches to ROMEO again (after an update)
-#   dsh-romeo --logs [-f]         the log of the agent's model job (-f: follow it, Ctrl-C to quit)
-#   dsh-romeo --doctor            check this computer, SSH, ROMEO, the fiches and the key; changes nothing
-#   dsh-romeo --completion bash|zsh   shell completion: eval "$(dsh-romeo --completion zsh)"
-#
-# Options, remembered for the next runs
-#   --models M                    deepseek (default), kimi, or kimi+deepseek (DeepSeek subagents)
+# Options (before the command, in any order; --models and --voice are remembered)
+#   --models deepseek|kimi|kimi+deepseek   the model; kimi+deepseek: DeepSeek runs the subagents
 #   --voice on|off                voice input in dsh, Whisper on ROMEO (1 GPU)
-#   -V, --version  -h, --help
+#   --launch N                    N DeepSeek jobs at once (1-8), for many agents
 #
-#   --models, --voice, --launch and --serve/--env/--desktop go in any order, before --run or a
-#   profile: dsh-romeo --desktop --launch. Kimi takes one job (32 GPUs); with kimi+deepseek,
-#   --launch also submits one DeepSeek job if none is there.
+# Other ways in
+#   dsh-romeo --desktop           the DeepSeek Harness desktop app (macOS) instead of the Web UI
+#   dsh-romeo headless "a task"   one task, the answer on stdout; any dsh profile: web --port 3000
+#   dsh-romeo --run CMD [ARGS]    opencode, codex, claude, aider, python... on the ROMEO model
+#   dsh-romeo --serve             only the tunnel, then print the endpoint; --env: as variables
+#
+# When something is wrong
+#   dsh-romeo --doctor            check this computer, SSH, ROMEO, the fiches and the key
+#   dsh-romeo --logs [-f]         the model job's log (-f: follow it, Ctrl-C to quit)
+#   dsh-romeo --setup             copy the fiches to ROMEO again (--launch does it when they changed)
+#
+#   --completion bash|zsh   -V, --version   -h, --help
 #
 # What it does: keeps the romeollmtool gateway running on the ROMEO login node, launches the
 # model with romeollmtool when asked, opens one SSH connection that carries a tunnel
@@ -122,7 +116,9 @@ case $DSH_ROMEO_EFFORT in
 esac
 
 usage() {  # the header comment, up to "What it does", and the remembered choices
-  awk 'NR > 1 && /^# What it does/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$src"
+  local b='' n=''
+  if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then b=$'\e[1m' n=$'\e[0m'; fi
+  awk -v b="$b" -v n="$n" 'NR > 1 && /^# What it does/ { exit } NR > 1 { sub(/^# ?/, ""); if (/^[A-Z]/ && NR > 3) $0 = b $0 n; print }' "$src"
   printf '  now: --models %s --voice %s%s\n' "$DSH_ROMEO_MODELS" "$DSH_ROMEO_VOICE" \
     "$([ -n "$ROMEO_PROJECT" ] && echo ", project $ROMEO_PROJECT" || echo ", no project (rerun install.sh)")"
 }
@@ -259,14 +255,14 @@ read_fiche() {
     /^generation:/ { g = 1; next }
     /^[^ -]/ { v = 0; g = 0 }
     v && /^  served_model_name:/ { served = $2 }
-    v && /^  model:/ { model = $2 }
+    v && /^  model:/ { model = $2; gsub(/["\047]/, "", model) }
     v && /--max-model-len/ { getline; gsub(/[^0-9]/, ""); ctx = $0 }
     v && /--language-model-only/ { textonly = 1 }
     g && /^  max_tokens:/ { out = $2 }
     END {
       name = served != "" ? served : model
       gsub(/["\047]/, "", name); gsub(/["\047]/, "", out)
-      printf "%sMODEL=%s %sCONTEXT=%s %sMAX_TOKENS=%s %sINPUT=%s\n", p, name, p, ctx + 0 ? ctx : 262144, p, out + 0 ? out : 65536, p, textonly ? "text" : "text,image"
+      printf "%sMODEL=%s %sCONTEXT=%s %sMAX_TOKENS=%s %sINPUT=%s %sWEIGHTS=%s\n", p, name, p, ctx + 0 ? ctx : 262144, p, out + 0 ? out : 65536, p, textonly ? "text" : "text,image", p, model
     }')"
   local model=${p}MODEL
   [ -n "${!model}" ] || die "cannot read the served model name of fiche '$fiche'"
@@ -308,8 +304,47 @@ queue_eta() {  # $1: squeue's %S, $2: its %r. ", starts ~14:32 (Resources)", wit
     *T*) hm=${hm%:*}
          if [ "$day" = "$(date +%Y-%m-%d)" ]; then out=", starts ~$hm"; else out=", starts ~${day#*-} $hm"; fi ;;
   esac
-  case ${2:-None} in None) ;; *) out="$out ($2)" ;; esac
+  case ${2:-None} in None) ;; *) out="$out ($(reason_text "$2"))" ;; esac
   printf '%s' "$out"
+}
+
+reason_text() {  # squeue's %r, in words
+  case $1 in
+    Resources) echo "no free GPU nodes yet" ;;
+    Priority) echo "other jobs go first" ;;
+    *GRESMinutes* | *GRESRunMinutes*) echo "the project's GPU hours are used up" ;;
+    AssocGrpGRES* | QOSGrpGRES* | AssocGrpNodeLimit* | QOSGrpNodeLimit*) echo "the project's GPU limit is reached: its other jobs hold them" ;;
+    ReqNodeNotAvail* | Reservation* | PartitionDown | PartitionInactive) echo "nodes reserved or down: maintenance?" ;;
+    *Held*) echo "held" ;;
+    PartitionTimeLimit | QOSMaxWallDurationPerJobLimit | AssocMaxWallDurationPerJobLimit) echo "its time limit is over the allowed one" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# A pending job that will never start by waiting: dies with what to do. $1: jobs_of_fiche's lines.
+check_blocked() {
+  local id st el left nodes start reason
+  while read -r id st el left nodes start reason; do
+    [ "$st" = PENDING ] || continue
+    case $reason in
+      *GRESMinutes* | *GRESRunMinutes*)
+        die "job $id cannot start: project $ROMEO_PROJECT has used up its GPU hours ($reason)" "dsh-romeo --stop   (then ask ROMEO support, or install.sh --project another one)" ;;
+      PartitionTimeLimit | QOSMaxWallDurationPerJobLimit | AssocMaxWallDurationPerJobLimit)
+        die "job $id cannot start: DSH_ROMEO_TIME=$DSH_ROMEO_TIME is over the allowed time ($reason)" "dsh-romeo --stop, then DSH_ROMEO_TIME=08:00:00 dsh-romeo --launch" ;;
+      *Held*)
+        die "job $id is held by Slurm ($reason)" "ssh $HOST scontrol release $id   (or dsh-romeo --stop)" ;;
+    esac
+  done <<<"$1"
+}
+
+minutes_of() {  # a Slurm duration ([D-]H:MM:SS, MM:SS) in minutes; 0 when unreadable
+  local t=$1 d=0 a b c
+  case $t in *-*) d=${t%%-*}; t=${t#*-} ;; esac
+  IFS=: read -r a b c <<<"$t"
+  case "$d$a${b:-}${c:-}" in *[!0-9]*) echo 0; return ;; esac
+  if [ -n "${c:-}" ]; then echo $((10#$d * 1440 + 10#$a * 60 + 10#$b))
+  elif [ -n "${b:-}" ]; then echo $((10#$d * 1440 + 10#$a))
+  else echo $((10#$d * 1440)); fi
 }
 
 running_job() { awk '$2 == "RUNNING" { print $1; exit }'; }  # stdin: jobs_of_fiche's lines
@@ -322,6 +357,10 @@ jobs_of_fiches() {  # for the waiting line only: squeue's own errors would break
 launch_jobs() {  # $1 jobs of the agent's model, one of the subagents' and one of Whisper if they have none
   local n=$1
   [ -n "$ROMEO_PROJECT" ] || die "no project code (ROMEO_PROJECT in $CONFIG_DIR/config)" "$ROOT/install.sh --project r123456"
+  # Slurm would keep a job over 24 h in the queue for ever, and take a typo for minutes.
+  [[ $DSH_ROMEO_TIME =~ ^([0-9]{1,2}):([0-5][0-9]):([0-5][0-9])$ ]] && [ $((10#${BASH_REMATCH[1]} * 3600 + 10#${BASH_REMATCH[2]} * 60 + 10#${BASH_REMATCH[3]})) -le 86400 ] \
+    && [ "$DSH_ROMEO_TIME" != 0:00:00 ] && [ "$DSH_ROMEO_TIME" != 00:00:00 ] \
+    || die "DSH_ROMEO_TIME: HH:MM:SS up to 24:00:00, not '$DSH_ROMEO_TIME'" "DSH_ROMEO_TIME=08:00:00 dsh-romeo --launch"
   # 32 GPUs per Kimi job, 60 per account: a second one would wait forever.
   [ "$LABEL" != Kimi-K3.1-Pro ] || [ "$n" -eq 1 ] || die "Kimi-K3.1-Pro takes 32 GPUs: one job fits in ROMEO's 60-GPU limit" "dsh-romeo --models $DSH_ROMEO_MODELS --launch"
   JOBS=''
@@ -329,16 +368,53 @@ launch_jobs() {  # $1 jobs of the agent's model, one of the subagents' and one o
   if [ -n "$JOBS" ]; then
     say "Kimi job $(awk '{ print $1; exit }' <<<"$JOBS") already queued or running: no second one ${D}(32 GPUs each)${N}"
   else
+    check_weights "$FICHE" "$WEIGHTS" "$LABEL"
     for _ in $(seq 1 "$n"); do launch_one "$FICHE"; done
   fi
-  if [ -n "$SUB_FICHE" ]; then jobs_known "$SUB_FICHE"; [ -n "$JOBS" ] || launch_one "$SUB_FICHE"; fi
+  if [ -n "$SUB_FICHE" ]; then jobs_known "$SUB_FICHE"; [ -n "$JOBS" ] || { check_weights "$SUB_FICHE" "$SUB_WEIGHTS" "$SUB_LABEL"; launch_one "$SUB_FICHE"; }; fi
   if [ -n "$VOICE_FICHE" ]; then jobs_known "$VOICE_FICHE"; [ -n "$JOBS" ] || launch_one "$VOICE_FICHE"; fi
+}
+
+# The weights of a model before its job: a job that cannot read them fails after its wait in the
+# queue. Kimi's are in a project's own storage, readable by that project's members only.
+# $1 the fiche, $2 the weights path, $3 the model's name.
+check_weights() {
+  case $2 in /*) ;; *) return 0 ;; esac  # a Hugging Face id: romeollmtool's business
+  local rc=0 owner
+  # 0 readable; 3 a directory on the way that this login cannot open; 4 missing. An unknown
+  # file system (not ROMEO's) says nothing: 0.
+  rsh "p=$(printf %q "$2"); [ -r \"\$p/config.json\" ] && exit 0; a=\$p
+    while [ \"\$a\" != / ] && [ ! -e \"\$a\" ]; do a=\$(dirname \"\$a\"); done
+    [ \"\$a\" = / ] && exit 0; [ -x \"\$a\" ] && [ -r \"\$a\" ] || exit 3; exit 4" || rc=$?
+  lost "$rc"
+  owner=$(printf '%s' "$2" | sed -n 's|^/project/\([^/]*\)/.*|\1|p')
+  local where=''
+  [ -z "$owner" ] || where=": they are in the storage of project $owner, open to its members only"
+  case $rc in
+    0) ;;
+    3) die "your ROMEO login cannot read the weights of $3 ($2)$where" \
+         "dsh-romeo --models deepseek --launch   (or ask to be added to project ${owner:-that owns them})" ;;
+    4) die "$3's weights are not on ROMEO at $2 (moved or deleted?)" "dsh-romeo --setup   (an updated fiche), then dsh-romeo --doctor" ;;
+    *) die "cannot check $3's weights on ROMEO (exit $rc)" "dsh-romeo --doctor" ;;
+  esac
 }
 
 launch_one() {
   local out id
-  out=$(rlt launch "$1" --project-code "$ROMEO_PROJECT" --time "$DSH_ROMEO_TIME" --no-wait 2>&1) \
-    || die "romeollmtool launch $1 failed: $(printf '%s\n' "$out" | tail -1)" "dsh-romeo --doctor   (project $ROMEO_PROJECT, fiches)"
+  local rc=0
+  out=$(rlt launch "$1" --project-code "$ROMEO_PROJECT" --time "$DSH_ROMEO_TIME" --no-wait 2>&1) || rc=$?
+  lost "$rc"
+  if [ "$rc" != 0 ]; then
+    case $out in
+      *'Invalid account'* | *'invalid account'*)
+        die "Slurm refuses project $ROMEO_PROJECT (not one of yours, or ended)" "$ROOT/install.sh --project rXXXXXX   (sacctmgr show assoc user=\$USER on ROMEO lists yours)" ;;
+      *'Invalid qos'* | *'QOSMax'* | *'time limit'*)
+        die "Slurm refuses the job: $(printf '%s\n' "$out" | tail -1)" "DSH_ROMEO_TIME=08:00:00 dsh-romeo --launch" ;;
+      *'Disk quota'* | *'No space left'*)
+        die "your ROMEO home is full: $(printf '%s\n' "$out" | tail -1)" "ssh $HOST 'du -sh ~/.romeollmtool/logs; df -h ~'   (old job logs can go)" ;;
+      *) die "romeollmtool launch $1 failed: $(printf '%s\n' "$out" | tail -1)" "dsh-romeo --doctor   (project $ROMEO_PROJECT, fiches)" ;;
+    esac
+  fi
   id=$(printf '%s\n' "$out" | grep -oE '[0-9]{5,}' | head -1)
   SUBMITTED="$SUBMITTED ${id:-?}"
   say "model job ${id:-?} submitted ${D}($1, $DSH_ROMEO_TIME)${N}"
@@ -469,13 +545,20 @@ why_ended() {
 }
 
 wait_for_model() {
-  local start jobs line shown='' width key
+  local start jobs line shown='' width key slow=''
   start=$(date +%s)
   # Ctrl-C: a clean line and what to type next; the job keeps running.
   trap 'if [ -t 2 ]; then printf "\r\033[K" >&2; fi; say "stopped waiting: the model job keeps running"; note "dsh-romeo --status   follow it"; note "dsh-romeo            open dsh once it answers"; note "dsh-romeo --stop     cancel it"; exit 130' INT
   while ! models_answer; do
     check_jobs "the model job ended before the model answered" "dsh-romeo --logs   (then dsh-romeo --launch again)"
     jobs=$(jobs_of_fiches)
+    check_blocked "$jobs"
+    # Loading for much longer than usual (a slow file system, a hang): said once, the wait goes on.
+    if [ -z "$slow" ] && [ "$(awk '$2 == "RUNNING" { print $3; exit }' <<<"$jobs" | { read -r t; minutes_of "${t:-0}"; })" -ge "$([ "$LABEL" = Kimi-K3.1-Pro ] && echo 35 || echo 25)" ]; then
+      slow=1
+      [ -z "$PROGRESS" ] || printf '\r\033[K' >&2
+      say "${Y}the model has been loading for longer than usual${N}: dsh-romeo --logs shows where it is"
+    fi
     line=$(waiting_line "$jobs" $(( $(date +%s) - start )))
     if [ -t 2 ]; then  # one line, rewritten in place: never wider than the terminal
       width=$(tput cols 2>/dev/null || echo 100)
@@ -1123,10 +1206,34 @@ cmd_setup() {
   say "job clean-up installed in ~/.dsh-romeo/prestart on ROMEO"
 }
 
+# Before a launch: this version's fiches and job clean-up on ROMEO, when they differ (an update
+# without --setup). Fiches of your own (DSH_ROMEO_FICHE) are not touched.
+sync_fiches() {
+  local f src dst out changed=''
+  for f in $FICHES prestart; do
+    # shellcheck disable=SC2088  # expanded by the shell on ROMEO
+    if [ "$f" = prestart ]; then src=$ROOT/share/prestart/sitecustomize.py dst='~/.dsh-romeo/prestart/sitecustomize.py'
+    else src=$ROOT/share/fiches/$f.yaml dst="~/.romeollmtool/configs/$f.yaml"; fi
+    [ -f "$src" ] || continue
+    out=$(rsh_stdin "d=$dst; mkdir -p \$(dirname \$d) && sed \"s/__USER__/\$USER/g\" >\$d.new && if cmp -s \$d.new \$d; then rm -f \$d.new; else mv \$d.new \$d && echo changed; fi" <"$src" 2>&1) \
+      || die "cannot write $(basename "$dst") on ROMEO: $(printf '%s\n' "$out" | tail -1)" "ssh $HOST 'df -h ~'   (ROMEO home full?)"
+    [ "$out" != changed ] || changed="$changed $f"
+  done
+  [ -z "$changed" ] || say "updated on ROMEO ${D}(this version's settings):$changed${N}"
+}
+
+time_left_warning() {  # the agent's job ends soon: the session would stop in the middle of a task
+  local left
+  left=$(jobs_of_fiche "$FICHE" 2>/dev/null | awk '$2 == "RUNNING" { print $4 }' | while read -r t; do minutes_of "$t"; done | sort -n | tail -1) || true
+  [ -n "$left" ] && [ "$left" -lt 30 ] || return 0
+  say "${Y}model job ends in $left min${N} ${D}(DSH_ROMEO_TIME)${N}: dsh-romeo --launch submits a new one, which loads while you work"
+}
+
 prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is open, ROMEO_LLM_KEY is set.
   local launch=$1
   connect
   ensure_gateway
+  [ "$launch" -eq 0 ] || sync_fiches
   read_fiches
   # The key before any job: a run that cannot go on submits nothing.
   ROMEO_LLM_KEY=$(rlt gateway show-key | tail -1 | tr -d '[:space:]') || true
@@ -1144,6 +1251,7 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
   note "gateway  $GATEWAY  (on ROMEO; its key: dsh-romeo --env)"
   note "local    http://127.0.0.1:$PORT/v1  (the tunnel to it, what dsh uses)"
   [ -z "$SUB_MODEL" ] || say "$SUB_LABEL ${G}ready${N} for the subagents ${D}($SUB_MODEL)${N}"
+  time_left_warning
   if [ -n "$VOICE_MODEL" ]; then open_voice_tunnel; else voice_off; fi
 }
 

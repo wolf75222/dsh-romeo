@@ -59,7 +59,7 @@ Host romeo
 | `dsh-romeo --completion bash\|zsh` | shell completion of the options, models and dsh profiles: `eval "$(dsh-romeo --completion zsh)"` in `~/.zshrc` (`bash`: `~/.bashrc`) |
 | `dsh-romeo --logs [-f]` | the last 40 lines of the agent's model job log (`-f` follows it) |
 | `dsh-romeo --version`, `--help` | `-V`, `-h`: the versions of dsh-romeo, dsh, the app's dsh and Node.js |
-| `dsh-romeo --setup` | copies the models' fiches to ROMEO again |
+| `dsh-romeo --setup` | copies the models' fiches and the job clean-up to ROMEO again; `--launch` also does it, for the fiches it launches, when this version's differ |
 | `dsh-romeo --models kimi ...` | the models, kept for the next runs (see below); options go in any order |
 | `dsh-romeo --voice on --launch` | voice input: dsh's microphone button, transcribed by Whisper on ROMEO (see below); kept for the next runs |
 

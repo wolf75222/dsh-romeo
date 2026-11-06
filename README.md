@@ -20,17 +20,18 @@ Then run `dsh-romeo --launch` (in a new terminal if `install.sh` said `~/.local/
 
 | Command | |
 |---|---|
-| `dsh-romeo --launch` | starts the model on ROMEO (2 nodes, 8 GH200), waits until it answers, opens the dsh Web UI |
-| `dsh-romeo` | opens the Web UI while the model job runs |
-| `dsh-romeo --desktop` | the [DeepSeek Harness desktop app](https://github.com/deepseek-ai/deepseek-harness/releases) (macOS) instead of the Web UI |
-| `dsh-romeo headless "a task"` | one task, the answer on stdout: for scripts |
-| `dsh-romeo --run opencode` | any other client: `codex`, `claude`, `aider`, `python3 my_agent.py`... |
-| `dsh-romeo --serve` | only the model and the tunnel, for an editor or any OpenAI-compatible tool |
-| `dsh-romeo --status` | the gateway, the tunnel, and the model jobs with their queue start time |
+| `dsh-romeo --launch` | starts the model on ROMEO, waits until it answers (about 10 min), opens dsh in your browser |
+| `dsh-romeo` | opens dsh on the model job already running |
+| `dsh-romeo --status` | what runs on ROMEO, and why the last job ended |
 | `dsh-romeo --stop` | stops the model jobs: they use your project's GPU hours while they run |
-| `dsh-romeo --doctor` | checks Node.js, dsh, SSH, romeollmtool, the project, the fiches and the key; when something does not work |
-| `dsh-romeo --models kimi --launch` | Kimi-K3.1-Pro instead (8 nodes, 32 GH200; for now project r260105 only); `--models kimi+deepseek`: Kimi for the agent, DeepSeek for its subagents |
-| `dsh-romeo --voice on --launch` | voice input in dsh, transcribed by Whisper on ROMEO (1 GPU, French included) |
+| `dsh-romeo --doctor` | when something does not work: checks each piece and says what to type |
+
+Options go before the command and are remembered for the next runs:
+
+- `--models kimi`: Kimi-K3.1-Pro instead of DeepSeek (32 GH200; its weights are open to project r260105 only). `--models kimi+deepseek`: Kimi for the agent, DeepSeek for its subagents.
+- `--voice on`: dsh's microphone button, transcribed by Whisper on ROMEO.
+
+Other clients: `--desktop` (the [desktop app](https://github.com/deepseek-ai/deepseek-harness/releases), macOS), `headless "a task"` (for scripts), `--run opencode` (or `codex`, `claude`, `aider`...), `--serve` (only the endpoint, for an editor). `dsh-romeo --help` lists everything; [Usage](docs/usage.md) explains each command.
 
 ## Docs
 
