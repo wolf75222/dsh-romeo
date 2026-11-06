@@ -518,6 +518,8 @@ why_ended() {
   local hits
   hits=$(printf '%s
 ' "$out" | sed -n 's/^hit=//p')
+  # A job someone cancelled (dsh-romeo --stop, the gateway) did not fail, whatever its log says.
+  case $state in CANCELLED*) hits='' ;; esac
   case $hits in
     *"Free memory on device"*)
       WHY="a GPU had only $(printf '%s

@@ -74,6 +74,9 @@ echo "romeollmtool-dsh-deepseek-v4.1-flash-1017-1m 900099|TIMEOUT|2026-11-06T14:
 run headless x
 check "start after a timed-out job: says so" has "it reached its time limit"
 echo "romeollmtool-dsh-deepseek-v4.1-flash-1017-1m 900099|CANCELLED by 0|2026-11-06T12:48:01|romeo-a031|0:0" >"$FAKE_ROMEO_STATE/sacct"
+printf '%s\n' "INFO Free memory on device cuda:0 (91.3/95.0 GiB) on startup. Desired GPU memory utilization is (0.88, 83.6 GiB)" >"$FAKE_ROMEO_HOME/.romeollmtool/logs/slurm-900099.err"
+run --status
+check "status: a stopped job with vLLM's memory info line is not a failure" lacks "failed"
 rm -f "$FAKE_ROMEO_STATE/gateway"   # the gateway stopped at the end of its lifetime
 run --status
 check "status: a cancelled last job, the gateway stopped" has "last one: it was cancelled at 12:48: romeollmtool's gateway stopped"
