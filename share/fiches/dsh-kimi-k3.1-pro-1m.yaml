@@ -35,7 +35,10 @@
 # - Marlin MoE: Hopper has no FP4, Marlin dequantizes the MXFP4 experts.
 # The attention backend is left to vLLM: the DSA layers need the sparse MLA one.
 # Images: the vision encoder (MoonViT-V2, 401M parameters) is served, no
-# --language-model-only, so Kimi reads the screenshots pasted in dsh.
+# --language-model-only, so Kimi reads the screenshots pasted in dsh. Tested on
+# ROMEO (2026-11-06): the number in a test image read correctly, 21.1M tokens of
+# KV cache and the same speed as text only (30.7 tok/s for one agent, 15.3 for
+# 4, 9.4 for 16; 30.6 at 800K tokens).
 # Plus what dsh-romeo kept for DeepSeek: 1M context, 256K output, 32 CPUs per
 # node, --stream-interval 4, Moonshot's sampling (temperature 1.0, top_p 0.95),
 # maximum reasoning by default.
