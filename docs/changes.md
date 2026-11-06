@@ -4,6 +4,7 @@
 
 ## 2026-11-06
 
+- DeepSeek: `--gpu-memory-utilization 0.88` instead of 0.82, so 9.1M tokens of KV cache instead of 6.2M at the same speed (A/B on ROMEO); FlashInfer compiles into the node's `/tmp` (a cache shared with Kimi's engine crashed a start). Run `dsh-romeo --setup`, then relaunch the DeepSeek job.
 - `install.sh --search-engine rustxng`: RustXNG (a Rust rewrite of SearXNG, same JSON API, about a fifth of the memory) on `127.0.0.1:8888` instead of SearXNG, pinned to 0.28.0 by digest. Evaluated on ROMEO against SearXNG: as relevant on 20 coding queries; offered as an option, SearXNG stays the default.
 - DeepSeek: DSpark now draws its draft tokens from the draft's distribution (`draft_sample_method: probabilistic`) instead of greedily: +12 to +19 % per agent at 64 agents and +15 to +19 % at 16 over the 0.33 fiche, in two runs, output distribution unchanged (exact rejection), 4 % less KV cache. Run `dsh-romeo --setup`, then relaunch the DeepSeek job.
 - Kimi-K3.1-Pro reads images: its fiche serves the vision encoder (MoonViT-V2), and with `kimi` or `kimi+deepseek` it is Kimi that reads the screenshots pasted in dsh. Tested on ROMEO: the image read correctly, same KV cache (21.1M tokens) and same speed as text only. Run `dsh-romeo --setup`, then relaunch the Kimi job.

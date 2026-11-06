@@ -20,9 +20,14 @@
 # Measured on ROMEO with the September weights (October 2026): about 530 agents
 # at once at 30 tokens/s each on 7 replicas (one job = one replica).
 #
-# gpu-memory-utilization 0.82 (77.9 GiB): on GH200 only 77-80 GiB are sometimes
-# free at start (host pages on the HBM), so 0.85 can fail; 0.82 still fits and
-# gives 6.5M tokens of KV cache instead of 4.7M at 0.78.
+# gpu-memory-utilization 0.88 (83.6 GiB): 9.09M tokens of KV cache instead of
+# 6.19M at 0.82, same speed (A/B on ROMEO, 2026-11-06). Of 531 vLLM starts on
+# armgpu nodes none had less than 80 GiB free and 33 had 80-86 GiB, all from 16
+# to 19 October; since then 93 GiB are free. 0.90 gives 10.06M but needs 85.5
+# GiB free.
+# FlashInfer compiles its kernels into FLASHINFER_WORKSPACE_BASE: on each node's
+# /tmp, since a ~/.cache/flashinfer shared with another vLLM engine (Kimi's)
+# crashed a start with an undefined symbol.
 # Tried on ROMEO (2026-10-28) and left out: DP2 x TP4 + expert parallelism
 # (+28 % on independent requests, but -23 % on multi-turn agent sessions: each
 # DP rank has its own prefix cache), --max-num-batched-tokens 16K/32K (+3 %,
@@ -75,6 +80,7 @@ env:
   # Node-local, one directory per user (see above).
   HUMMING_CACHE_DIR: "/tmp/humming-__USER__/cache"
   HUMMING_TMP_DIR: "/tmp/humming-__USER__/tmp"
+  FLASHINFER_WORKSPACE_BASE: "/tmp/flashinfer-__USER__"
 
 slurm:
   time: "24:00:00"
@@ -94,7 +100,7 @@ vllm:
   extra_args:
     - "--disable-custom-all-reduce"
     - "--gpu-memory-utilization"
-    - "0.82"
+    - "0.88"
     - "--max-model-len"
     - "1048576"
     - "--enable-auto-tool-choice"

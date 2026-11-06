@@ -7,6 +7,7 @@ What an A/B study on ROMEO (October 2026, up to 7 jobs and 3584 concurrent reque
 | | | Where |
 |---|---|---|
 | Tensor parallelism over 8 GH200 on 2 nodes, no pipeline parallelism | without patches that `romeollmtool` cannot load, the pipeline variants of V4.1 on vLLM 0.31 garble long agent contexts (12 to 18 sessions out of 24) | fiche |
+| `--gpu-memory-utilization 0.88` (was 0.82), FlashInfer's JIT cache on the node's `/tmp` | 9.09M tokens of KV cache instead of 6.19M (+47 %), same speed; 0.82 dated from mid-October starts with 77-80 GiB free, none since | fiche |
 | vLLM 0.33.0, its Humming MoE kernels compiled into each node's own `/tmp` | +19 % per agent alone, +22 % at 16 agents, +34 % at 64 (2249 against 1505 tok/s in all), half the time to first token at 64, 6.66M tokens of KV cache instead of 6.21M, against 0.31 measured at the same time (2026-11-06) | fiche |
 | DSpark draft tokens drawn from the draft's distribution (`draft_sample_method: probabilistic`), still exact rejection | +26 to +36 % per agent at 4 agents, +15 to +19 % at 16, +12 to +19 % at 64, two runs against greedy on 0.33 (2026-11-06); 4 % less KV cache | fiche |
 | DSpark speculative decoding, 2 draft tokens with the 1017 weights (3 with September's); 32 CPUs per node; `--stream-interval 4` | +61 % per agent at 16 agents per job and +70 % at 64, against 5 draft tokens and 8 CPUs; on 1017, k=2 beats k=3 by 3 to 9 % and k=4 loses up to 21 % | fiche |
