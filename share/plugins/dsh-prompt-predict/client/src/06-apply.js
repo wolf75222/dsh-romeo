@@ -1,0 +1,90 @@
+    function apply(ctx) {
+      pluginContext = ctx;
+      // 注册词典并绑定翻译函数：DSH 的 locale 服务会把语言切换即时应用到已挂载的界面；
+      // 没有该服务（旧运行时）时保持中文兜底，不会退化成显示 key。
+      watchTheme();
+      try {
+        if (ctx.locale && typeof ctx.locale.register === "function") {
+          // 注册全部语言的词典（漏注册会让该语言的界面整屏退回中文）
+          var dicts = {};
+          Object.keys(DICT).forEach(function (lang) { dicts[lang] = DICT[lang]; });
+          ctx.locale.register(NS, dicts);
+          boundTranslate = ctx.locale.bind(NS);
+          localeService = ctx.locale;      // currentLang() 要读它的快照
+        }
+      } catch { /* 保持中文 */ }
+      try {
+        var navigation = typeof ctx.get === "function" ? ctx.get("pluginNavigation") : null;
+        if (navigation && typeof navigation.openBundle === "function") {
+          pluginPageOpener = function () { navigation.openBundle("dsh-prompt-predict"); };
+        }
+      } catch { /* 旧运行时没有插件页导航 */ }
+      // Action native du menu DSH : la cible ne contient que l'identifiant de session ;
+      // le texte et sa révision sont relus au moment de l'exécution.
+      try {
+        var menus = typeof ctx.get === "function" ? ctx.get("contextMenus") : ctx.contextMenus;
+        if (menus && typeof menus.register === "function") {
+          var registerMenu = function () {
+            return menus.register({
+              id: "prompt-assist",
+              target: "dsh-prompt-predict.composer",
+              order: 20,
+              resolve: function (target) {
+                // This menu replaces the browser's own in the composer: keep its edit actions.
+                var sid = target && target.sessionId;
+                var edit = function (id, label, run) {
+                  return { id: id, label: label, run: function () {
+                    var ed = findEditor(sid);
+                    if (ed && typeof ed.focus === "function") ed.focus();
+                    return run();
+                  } };
+                };
+                var selected = String(window.getSelection && window.getSelection() || "") !== "";
+                var items = [];
+                if (selected) {
+                  items.push(edit("cut", tt(boundTranslate, "menu.cut"), function () { document.execCommand("cut"); }));
+                  items.push(edit("copy", tt(boundTranslate, "menu.copy"), function () { document.execCommand("copy"); }));
+                }
+                items.push(edit("paste", tt(boundTranslate, "menu.paste"), function () {
+                  return navigator.clipboard.readText().then(function (text) { if (text) document.execCommand("insertText", false, text); });
+                }));
+                items.push(edit("selectAll", tt(boundTranslate, "menu.selectAll"), function () { document.execCommand("selectAll"); }));
+                return [{
+                  id: "correct",
+                  label: tt(boundTranslate, "menu.correct"),
+                  failureLabel: tt(boundTranslate, "correct.failed"),
+                  run: function () {
+                    window.dispatchEvent(new CustomEvent("dsh-prompt-predict:correct", {
+                      detail: { sessionId: target && target.sessionId },
+                    }));
+                  },
+                }].concat(items);
+              },
+            });
+          };
+          if (typeof ctx.effect === "function") ctx.effect(registerMenu, "prompt assist: context menu");
+          else registerMenu();
+        }
+      } catch { /* Le menu natif reste disponible sur les anciens runtimes. */ }
+      ctx.slots.inject("conversation.composer.dock", function () {
+        return ctx.slots.register({
+          name: "conversation.composer.dock",
+          id: "prompt-prediction",
+          order: 10,
+        }, PredictionDock);
+      });
+      ctx.slots.inject("settings.section", function () {
+        return ctx.slots.register({
+          name: "settings.section",
+          id: "prompt-predict",
+          order: 2,
+          label: function () { return tt(boundTranslate, "settings.title"); },
+          inject: function () { return {}; },
+        }, SettingsSection);
+      });
+    }
+
+    module.exports = { name: name, inject: inject, apply: apply };
+    return module.exports;
+  },
+});

@@ -26,7 +26,7 @@ git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/
 
 | Plugin | |
 |---|---|
-| [dsh-prompt-predict](https://github.com/ferrisching/dsh-prompt-predict) | suggests your next prompt after each answer, accepted with Tab; with `kimi+deepseek`, dsh-romeo points it to DeepSeek without reasoning so that it stays fast; otherwise it follows the session's model |
+| dsh-prompt-predict ([dsh-romeo's build](../share/plugins/dsh-prompt-predict) of [ferrisching's plugin](https://github.com/ferrisching/dsh-prompt-predict)) | completes your prompt as you type (grey text at the cursor after 700 ms: Tab inserts it, Esc hides it), corrects it on right-click ("Correct the prompt": spelling, grammar, spacing; paths, code and commands kept), and suggests your next prompt after each answer; with `kimi+deepseek`, dsh-romeo points it to DeepSeek without reasoning (about 0.3 s per completion); otherwise it follows the session's model |
 | [dsh-sidenote](https://github.com/g-yixuan/dsh-sidenote) | side chat: a temporary conversation seeded from the session, whose answer comes back to the main thread |
 | [dsh-context](https://github.com/bowenliang123/dsh-context) | context dashboard (`/context`, right sidebar): what fills the context, how it grows over the session, cache hits and an estimated cost; in dsh's language (French, English and others). It sends none of your sessions out: it only reads its latest version on npm and a list of suggested plugins from its GitHub repository (or the gh-proxy.org mirror) |
 

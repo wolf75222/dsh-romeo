@@ -1,0 +1,50 @@
+{
+  "name": "dsh-prompt-predict",
+  "version": "0.3.0-romeo.1",
+  "description": "Live Copilot-style prompt completion, right-click correction and next-message suggestions for dsh (dsh-prompt-predict 0.2.13 by ferrisching, MIT, extended for dsh-romeo)",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./client/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib",
+    "client/client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "LICENSE",
+    "README.md"
+  ],
+  "homepage": "https://github.com/ferrisching/dsh-prompt-predict#readme",
+  "author": "ferrisching",
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "prompt-prediction",
+    "composer",
+    "ghost-text",
+    "prompt-completion",
+    "prompt-correction"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-context-menu"
+      ]
+    }
+  }
+}

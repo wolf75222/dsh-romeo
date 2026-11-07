@@ -4,6 +4,7 @@
 
 ## 2026-11-07
 
+- dsh-prompt-predict: dsh-romeo ships its own build (share/plugins/dsh-prompt-predict, from 0.2.13, MIT) with live completion as you type (Tab inserts, Esc hides, typing on keeps the rest) and right-click correction of the prompt, with Cut, Copy, Paste and Select all kept in that menu. Reviewed and fixed before shipping: any change in the page (the grey text itself included) cleared the completion and sent a new request, in a loop; now only typing does. No reasoning for these calls by default, 96 output tokens, the last messages of the session only, French throughout. `install.sh` replaces another installed version, on or off as it was.
 - `kimi+deepseek`: the subagent list names the model each subagent runs on ("Fix the parser · DeepSeek"), through a small plugin, share/subagent-model-label.mjs. It applies to subagents started after the update; restart the app (`dsh-romeo --desktop`) to load it there.
 - Optional plugins: dsh-context 0.82.1 (context dashboard), checked on dsh 0.2.2-rc.1: it loads, and sends none of your sessions out. `./install.sh` installs it turned off, as the others. `--desktop` also restarts the app when its plugins changed.
 - `kimi+deepseek`: the agent is told in its system prompt (dsh's persona suffix) which models its subagents can run on, which one is the default, when to pick Kimi, and to keep at most 6 to 8 Kimi agents at once. Before, Kimi answered that only Kimi was available.

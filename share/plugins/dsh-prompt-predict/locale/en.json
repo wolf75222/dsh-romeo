@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Prompt suggestions",
+    "description": "Completes your prompt live at the caret, corrects it from the right-click menu, and predicts your next message."
+  }
+}

@@ -562,6 +562,23 @@ out=$(DSH_HOME=$P6 FAKE_DSH_VERSION=0.2.3 FAKE_LATEST_RANGE='<0.2.3-0' "$ROOT/sh
 check "plugins: no version fits the new dsh, reported" has "dsh-sidenote: 0.8.3 does not fit dsh 0.2.3, nor does its latest version 9.9.9 (installed, off)"
 check "plugins: and it stays off" node -e 'process.exit(require(process.argv[1]).dsh.profile.bundles.includes("dsh-sidenote") ? 1 : 0)' "$P6/profiles/web/package.json"
 
+# dsh-romeo's build of dsh-prompt-predict (share/plugins): linked from the repository, and it replaces
+# another version of the plugin, on or off as it was.
+check "plugins: dsh-prompt-predict linked from share/plugins" node -e 'process.exit(require(process.argv[1]).dependencies["dsh-prompt-predict"] === "link:" + process.argv[2] ? 0 : 1)' "$P/profiles/web/package.json" "$ROOT/share/plugins/dsh-prompt-predict"
+P7=$T/plugins-home7; mkdir -p "$P7/profiles/web"
+echo '{"dependencies":{"dsh-prompt-predict":"0.2.11"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-prompt-predict"]}}}' >"$P7/profiles/web/package.json"
+out=$(DSH_HOME=$P7 "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
+check "plugins: an npm dsh-prompt-predict is replaced by dsh-romeo's build" has "dsh-prompt-predict: 0.2.11 replaced by dsh-romeo's build (on)"
+check "plugins: and stays on" node -e 'const d=require(process.argv[1]); process.exit(d.dsh.profile.bundles.includes("dsh-prompt-predict") && d.dependencies["dsh-prompt-predict"].startsWith("link:") ? 0 : 1)' "$P7/profiles/web/package.json"
+out=$(DSH_HOME=$P7 "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
+check "plugins: the build already linked is left alone" has "dsh-prompt-predict: already in the web profile, left as it is"
+PP=$ROOT/share/plugins/dsh-prompt-predict
+check "dsh-prompt-predict: client.js is built from client/src" bash -c "cd '$PP' && cat client/src/0*.js | cmp -s - client/client.js"
+for t in predict assist client-render; do
+  out=$(cd "$PP" && node "test/$t.mjs" 2>&1)
+  check "dsh-prompt-predict: test/$t.mjs" has "^RESULT PASS"
+done
+
 # The romeo skill: frontmatter dsh accepts, links that resolve, and its env.sh against the fake ROMEO.
 SKILL=$ROOT/share/skills/romeo
 out=$(sed -n '1,/^---$/{/^---$/d;p;}' "$SKILL/SKILL.md" | sed -n '1,4p')

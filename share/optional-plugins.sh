@@ -10,6 +10,7 @@ set -uo pipefail
 
 PROFILE=$1 CLI=${2:-dsh}
 LIST=$(dirname "$0")/plugins.txt
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DIR=${DSH_HOME:-$HOME/.dsh}/profiles/$PROFILE
 MANIFEST=$DIR/package.json
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/dsh-romeo-plugins.XXXXXX")
@@ -21,6 +22,10 @@ SEMVER=${DSH_ROMEO_SEMVER:-$(node -e '
   console.log(path.dirname(require.resolve("semver", { paths: [path.join(path.dirname(npm), "..")] })))
 ' "$(command -v npm)" 2>/dev/null)}
 [ -n "$SEMVER" ] && [ -d "$SEMVER" ] || echo "(npm's semver not found: installed plugins are not checked against dsh $DSH_VERSION)"
+
+dependency() {  # $1: package name; its spec in the profile ("0.8.3", "link:/path"...)
+  [ -f "$MANIFEST" ] && node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).dependencies?.[process.argv[2]] ?? ""' "$MANIFEST" "$1" 2>/dev/null
+}
 
 installed() {  # $1: package name, a dependency of the profile
   [ -f "$MANIFEST" ] && node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).dependencies?.[process.argv[2]] ? 0 : 1)' "$MANIFEST" "$1"
@@ -64,7 +69,22 @@ version_of() { node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "
 status=0
 while read -r spec what; do
   case $spec in '' | \#*) continue ;; esac
+  spec=${spec//\{ROOT\}/$ROOT}
   name=${spec%@*}
+  # A plugin shipped in this repository replaces any other version of it, on or off as it was.
+  if [ "${spec#"$name"@}" != "${spec#"$name"@link:}" ] && installed "$name" && [ "$(dependency "$name")" != "${spec#"$name"@}" ]; then
+    was_on=0
+    selected "$name" && was_on=1
+    old=$(dependency "$name")
+    if add "$spec"; then
+      [ "$was_on" = 1 ] || turn_off "$name"
+      echo "$name: $old replaced by dsh-romeo's build ($([ "$was_on" = 1 ] && echo on || echo off))"
+    else
+      echo "$name: dsh-romeo's build could not replace $old ($(grep -m1 -i -E 'error|refus' "$WORK/log" || tail -1 "$WORK/log"))"
+      status=1
+    fi
+    continue
+  fi
   if installed "$name"; then
     if fits "$name"; then
       echo "$name: already in the $PROFILE profile, left as it is"
