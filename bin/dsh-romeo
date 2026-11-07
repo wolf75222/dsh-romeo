@@ -967,9 +967,14 @@ remember_desktop_key() {
   (umask 077; desktop_state >"$CONFIG_DIR/desktop.key-sum")
 }
 
-# What the running app was started with, beyond its profile's patch: the key, and the home-level
-# patch it also reads at start (~/.dsh/cordis.patch.yml).
-desktop_state() { { printf '%s\n' "$ROMEO_LLM_KEY"; cat "$HOME/.dsh/cordis.patch.yml" 2>/dev/null; } | cksum; }
+# What the running app was started with, beyond its profile's patch: the key, the home-level patch
+# it also reads at start (~/.dsh/cordis.patch.yml), and its plugins (the profile's package.json).
+desktop_state() {
+  local f
+  { printf '%s\n' "$ROMEO_LLM_KEY"
+    for f in "$HOME/.dsh/cordis.patch.yml" "$HOME/.dsh/profiles/desktop/package.json"; do cat "$f" 2>/dev/null || true; done
+  } | cksum
+}
 
 # The app already runs with this key and these patches (after a sleep, the tunnel only had to be
 # reopened): no restart, the app keeps its windows.

@@ -1,7 +1,10 @@
 # Third-party dsh plugins that install.sh installs in your dsh profiles, turned off: enable or
 # disable them in the Plugins page of dsh (or of the desktop app). One pinned version per line,
-# each read and checked on dsh 0.2.2-rc.1 (2026-11-05): it loads, and sends nothing outside your
-# computer and your models. Plugins that import dsh internals (dsh-answer-reviewer,
-# dsh-task-supervisor, dsh-claude-move) do not load on 0.2.2 and are left out.
+# each read and checked on dsh 0.2.2-rc.1 (2026-11-05, dsh-context 2026-11-07): it loads, and sends
+# none of your sessions outside your computer and your models. dsh-context only reads, outside: its
+# latest version on npm, and a list of suggested plugins from its GitHub repository (or
+# gh-proxy.org). Plugins that import dsh internals (dsh-answer-reviewer, dsh-task-supervisor,
+# dsh-claude-move) do not load on 0.2.2 and are left out.
 dsh-prompt-predict@0.2.11   next-prompt suggestions after each answer, accepted with Tab
 dsh-sidenote@0.8.3          side chat: a temporary conversation seeded from the session
+dsh-context@0.82.1          context dashboard: what fills the context, how it grows, cache and cost (in French or English with dsh)

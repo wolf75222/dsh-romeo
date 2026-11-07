@@ -244,6 +244,12 @@ if [ "$(uname)" = Darwin ]; then
   echo "# edited" >>"$T/home/.dsh/cordis.patch.yml"
   HOME=$T/home run --desktop
   check "--desktop after an edit of ~/.dsh/cordis.patch.yml: the app is restarted" grep -q "quit app" "$FAKE_ROMEO_STATE/osascript-call"
+  rm -f "$FAKE_ROMEO_STATE/osascript-call"
+  HOME=$T/home run --desktop
+  echo '{"dsh":{"profile":{"bundles":["a-new-plugin"]}}}' >"$T/home/.dsh/profiles/desktop/package.json"
+  HOME=$T/home run --desktop
+  check "--desktop after a plugin was added: the app is restarted" grep -q "quit app" "$FAKE_ROMEO_STATE/osascript-call"
+  rm -f "$T/home/.dsh/profiles/desktop/package.json"
   rm -f "$FAKE_ROMEO_STATE/app-running"
   FAKE_OPEN_FAIL=1 HOME=$T/home run --desktop
   check "--desktop: open refused, macOS's reason" has "macOS did not open DeepSeek Harness: LSOpenURLsWithRole"
