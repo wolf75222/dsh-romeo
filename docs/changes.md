@@ -4,6 +4,7 @@
 
 ## 2026-11-07
 
+- `kimi+deepseek`: subagents really go to DeepSeek in the Web UI and the desktop app. dsh's model selection, off by default, let a subagent take only the agent's own model there, so they ran on Kimi. It is now on with both models allowed: DeepSeek by default, and the agent may pick Kimi for a subagent. Open a new session after updating.
 - `--web on|off` (remembered): web search in dsh through RustXNG on the ROMEO login node, nothing to install on your computer. Its static binary (0.28.0) is downloaded once and checked against its pinned SHA-256; each search runs `rustxng mcp` over dsh-romeo's SSH connection, so no port is opened on the shared login node. About 1 s and 10 results per search. Works in the Web UI, `headless` and `--desktop`.
 - Tuning finished: the last A/B runs on ROMEO (NCCL queue pairs, async scheduling and a 16K prefill budget for DeepSeek; NCCL queue pairs and DCP2 for Kimi) did not beat the production fiches, which stay as they are ([Tuning](tuning.md)). Images and voice checked again on both production fiches. README: the speeds measured.
 

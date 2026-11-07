@@ -673,6 +673,20 @@ helper_patch() {
       }
     }
     END { flush() }' <<<"$dump"
+  # The agent may also pick the model of a subagent (dsh's model selection, on in the Web and
+  # desktop presets, off by default): $LABEL or $SUB_LABEL, each with its full context. Without a
+  # choice, a subagent runs on $SUB_LABEL. (Without this setting dsh lets a subagent take only the
+  # agent's own model, and the subagent tool's $SUB_LABEL route was ignored.) A subagent starts its
+  # own subagents when dsh's subagent depth (its setting, 2 in the Web and desktop profiles) allows.
+  cat <<YAML
+# Subagents: the agent may choose $LABEL or $SUB_LABEL for each one ($SUB_LABEL by default).
+- id: subagent-model-selection-settings
+  config:
+    enabled: true
+    allowedModels:
+      - { provider: romeo, model: $MODEL }
+      - { provider: romeo, model: $SUB_MODEL }
+YAML
   if profile_has_bundle "$manifest" dsh-prompt-predict; then
     cat <<YAML
 # dsh-prompt-predict (on in this profile) on $SUB_LABEL, without reasoning: fast suggestions.
@@ -861,7 +875,7 @@ merge_desktop_patch() {
   [ -f "$1" ] || return 0
   # Rows the overlay writes again are replaced; rows of an earlier start under ids dsh-romeo uses go
   # only when they carry its marks (the romeo provider, its plugins), not the app's own settings.
-  awk -v ids="$(sed -n 's/^- id: //p' "$OVERLAY" | tr '\n' ' ')" -v earlier="llm-pi-ai agent-default-model tool-subagent session-title-llm optional-session-title-all-prompts dsh-prompt-predict speech-to-text" '
+  awk -v ids="$(sed -n 's/^- id: //p' "$OVERLAY" | tr '\n' ' ')" -v earlier="llm-pi-ai agent-default-model tool-subagent session-title-llm optional-session-title-all-prompts dsh-prompt-predict speech-to-text subagent-model-selection-settings" '
     BEGIN {
       n = split(ids, a, " "); for (i = 1; i <= n; i++) ours[a[i]] = 1
       n = split(earlier, a, " "); for (i = 1; i <= n; i++) old[a[i]] = 1

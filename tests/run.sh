@@ -228,6 +228,7 @@ if [ "$(uname)" = Darwin ]; then
   touch "$FAKE_ROMEO_STATE/app-running"
   DSH_ROMEO_DESKTOP_DSH=$T/app-dsh HOME=$T/home run --models deepseek --desktop
   check "--desktop back to deepseek: no subagent preset left" bash -c "! grep -q 'preset-of-the-app' '$T/home/.dsh/profiles/desktop/cordis.patch.yml'"
+  check "--desktop back to deepseek: no model choice left" bash -c "! grep -q 'subagent-model-selection-settings' '$T/home/.dsh/profiles/desktop/cordis.patch.yml'"
   # The Kimi job ends (scancel), the DeepSeek job stays for the tests below.
   grep -v kimi "$FAKE_ROMEO_STATE/jobs" >"$FAKE_ROMEO_STATE/jobs.new"; mv "$FAKE_ROMEO_STATE/jobs.new" "$FAKE_ROMEO_STATE/jobs"
   run --models deepseek --status
@@ -352,6 +353,8 @@ check "kimi+deepseek: a DeepSeek job" grep -q " dsh-deepseek-v4.1-flash-1017-1m 
 check "kimi+deepseek: Kimi ready" has "Kimi-K3.1-Pro ready"
 check "kimi+deepseek: DeepSeek ready for the subagents" has "DeepSeek-V4.1-Flash-1017 ready for the subagents"
 check "kimi+deepseek overlay: both models" bash -c "grep -q 'id: dsh-kimi-k3.1-pro-1m' '$overlay' && grep -q 'id: dsh-deepseek-v4.1-flash-1017-1m' '$overlay'"
+check "kimi+deepseek overlay: the agent may choose either model for a subagent" bash -c "grep -A6 '^- id: subagent-model-selection-settings' '$overlay' | grep -q 'enabled: true' && grep -A6 '^- id: subagent-model-selection-settings' '$overlay' | grep -q 'model: dsh-kimi-k3.1-pro-1m' && grep -A6 '^- id: subagent-model-selection-settings' '$overlay' | grep -q 'model: dsh-deepseek-v4.1-flash-1017-1m'"
+check "kimi+deepseek overlay: dsh's own subagent settings untouched" bash -c "! grep -q '^- id: subagent\$' '$overlay'"
 check "kimi+deepseek overlay: DeepSeek takes images" bash -c "grep -A5 'id: dsh-deepseek-v4.1-flash-1017-1m' '$overlay' | grep -q 'input: \[ text, image \]'"
 check "kimi+deepseek overlay: Kimi takes images" bash -c "grep -A5 'id: dsh-kimi-k3.1-pro-1m' '$overlay' | grep -q 'input: \[ text, image \]'"
 check "kimi+deepseek overlay: Kimi by default" bash -c "grep -A3 'id: agent-default-model' '$overlay' | grep -q 'model: dsh-kimi-k3.1-pro-1m'"
