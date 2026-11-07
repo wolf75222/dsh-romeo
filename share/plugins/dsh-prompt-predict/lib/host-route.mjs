@@ -427,11 +427,9 @@ export function registerPredictRoute(ctx, cordisConfig = {}) {
           sendJson(res, 400, { ok: false, reason: t('err.missingDraft') });
           return;
         }
+        // A session not started yet (the welcome page) has no conversation: the plain prompt is
+        // completed or corrected, on the configured model.
         const session = ctx.sessions.get(body.sessionId);
-        if (!session) {
-          sendJson(res, 404, { ok: false, code: 'session_not_found', reason: t('err.sessionNotFound') });
-          return;
-        }
         const startedAt = Date.now();
         const abort = new AbortController();
         const timeout = setTimeout(() => abort.abort('prompt assist timeout'), Number(eff.timeoutMs) || 12000);

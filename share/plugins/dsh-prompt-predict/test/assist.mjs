@@ -11,6 +11,7 @@ import {
   buildCompletionPrompt,
   buildCorrectionPrompt,
   COMPLETION_SYSTEM,
+  withoutLastWord,
   CORRECTION_SYSTEM,
   MAX_COMPLETION_CHARS,
   MAX_COMPLETION_DRAFT,
@@ -80,6 +81,25 @@ await check('补全继承当前会话模型并标记 prompt-completion', async (
   assert.equal(options.maxTokens, COMPLETION_MAX_TOKENS);
   assert.deepEqual(result.route, { provider: 'session-provider', model: 'session-model' });
   assert.equal(result.completion, 'the parser');
+});
+
+await check('completion without a session (welcome page): no context, the configured route, no reasoning', async () => {
+  reply([{ type: 'text-delta', text: ' fonctionne' }]);
+  const result = await completePrompt(fakeCtx, undefined, {
+    draft: 'Explique-moi comment', cursor: 20, route: { provider: 'romeo', model: 'flash' },
+  });
+  const options = calls.at(-1);
+  assert.equal(options.provider, 'romeo');
+  assert.equal(options.reasoningEffort, 'off');
+  assert.match(lastPrompt(), /\(no recent messages\)/);
+  assert.equal(result.completion, ' fonctionne');
+});
+
+await check('the repeated last word gives the spacing', async () => {
+  assert.equal(normalizeCompletion(withoutLastWord('que le VPN suffit', 'est-ce que'), 'est-ce que'), ' le VPN suffit');
+  assert.equal(normalizeCompletion(withoutLastWord('ajouter un test', 'et ajoute'), 'et ajoute'), 'r un test');
+  assert.equal(normalizeCompletion(withoutLastWord('le protocole', 'comment fonctionne '), 'comment fonctionne '), 'le protocole');
+  assert.equal(normalizeCompletion(withoutLastWord(' le VPN', 'est-ce que'), 'est-ce que'), ' le VPN');
 });
 
 await check('补全支持 route 覆盖、思考档位和 signal', async () => {

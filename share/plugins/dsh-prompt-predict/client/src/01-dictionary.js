@@ -4,7 +4,7 @@
         "effort.medium": "中", "effort.high": "高", "effort.max": "最大",
         "ghost.acceptHint": "Tab 采纳 · Alt+→ 逐段采纳",
         "ghost.reroll": "换一条建议",
-        "ghost.dismiss": "Esc 忽略",
+        "ghost.dismiss": "Esc",
         "ghost.regenHint": "↓ 重新生成",
         "ghost.truncated": "已截断 · 建议调高字数上限",
         "ghost.truncatedHint": "已截断 · 到 设置 → 提示词联想 → 高级 调高「字数上限」",
@@ -157,8 +157,8 @@
         "effort.off": "Off", "effort.minimal": "Minimal", "effort.low": "Low",
         "effort.medium": "Medium", "effort.high": "High", "effort.max": "Max",
         "ghost.acceptHint": "Tab to accept · Alt+→ piece by piece",
-        "ghost.reroll": "Suggest another",
-        "ghost.dismiss": "Esc to dismiss",
+        "ghost.reroll": "Another suggestion (↓)",
+        "ghost.dismiss": "Esc",
         "ghost.regenHint": "↓ regenerate",
         "ghost.truncated": "cut off · raise the output length",
         "ghost.truncatedHint": "cut off · raise Output length in Settings → Prompt suggestions → Advanced",
@@ -311,8 +311,8 @@
         "effort.off": "Désactivé", "effort.minimal": "Minimal", "effort.low": "Faible",
         "effort.medium": "Moyen", "effort.high": "Élevé", "effort.max": "Max",
         "ghost.acceptHint": "Tab pour accepter · Alt+→ morceau par morceau",
-        "ghost.reroll": "Autre suggestion",
-        "ghost.dismiss": "Échap pour ignorer",
+        "ghost.reroll": "Autre suggestion (↓)",
+        "ghost.dismiss": "Échap",
         "ghost.regenHint": "↓ régénérer",
         "ghost.truncated": "coupée · augmentez la longueur",
         "ghost.truncatedHint": "coupée · augmentez Longueur de sortie dans Réglages → Suggestions de prompt → Avancé",
@@ -576,6 +576,11 @@
      * 已知 key 去问翻译、跟词典比对。
      */
     function currentLang() {
+      // dsh keeps <html lang> in step with its language (zh-CN for Chinese).
+      try {
+        var doc = typeof document !== "undefined" && document.documentElement ? String(document.documentElement.lang || "").toLowerCase() : "";
+        if (doc) return doc.indexOf("zh") === 0 ? "zh" : doc.indexOf("fr") === 0 ? "fr" : "en";
+      } catch { /* the locale service below */ }
       try {
         var snap = localeService && typeof localeService.getSnapshot === "function" ? localeService.getSnapshot() : null;
         var v = snap && (snap.active || snap.locale || snap.id);
@@ -601,10 +606,19 @@
     var UI_LOCALES = { zh: "zh-CN", en: "en-US", fr: "fr-FR" };
     function uiLocale() { return UI_LOCALES[currentLang()] || undefined; }
 
+    // "name (detail)": full-width parentheses in Chinese only.
+    function paren(name, detail) {
+      return currentLang() === "zh" ? name + "（" + detail + "）" : name + " (" + detail + ")";
+    }
+
     function tt(t, key, vars) {
       var fn = t || boundTranslate || fallbackTranslate;
       var text = null;
-      try { text = fn(key); } catch { text = null; }
+      // Our own dictionary for the UI language first: dsh keeps only the zh and en dictionaries of
+      // a plugin and falls back to English (or Chinese) for the other languages.
+      var lang = currentLang();
+      if (lang !== "zh" && lang !== "en" && DICT[lang] && DICT[lang][key]) text = DICT[lang][key];
+      if (text === null) try { text = fn(key); } catch { text = null; }
       if (typeof text !== "string" || !text || text === key) text = fallbackTranslate(key);
       if (vars) {
         text = text.replace(/\{(\w+)\}/g, function (m, k) {

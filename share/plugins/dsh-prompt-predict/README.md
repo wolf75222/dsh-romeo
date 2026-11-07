@@ -4,8 +4,9 @@
 with two features added for dsh-romeo:
 
 - Live completion while you type, as in an IDE: after 700 ms without a key, a grey continuation
-  appears at the cursor. Tab inserts it, Esc hides it (until the draft changes), typing on keeps
-  it while your keys match it.
+  appears at the cursor, aligned with your text. Tab inserts it, Esc hides it (until the draft
+  changes), typing on keeps it while your keys match it. In a session it reads the last messages;
+  in the box of a session not started yet, the prompt alone.
 - Right-click in the message box: "Correct the prompt" fixes spelling, grammar and spacing and
   keeps paths, code, commands, @mentions and /commands as they are. The menu also has Cut, Copy,
   Paste and Select all.

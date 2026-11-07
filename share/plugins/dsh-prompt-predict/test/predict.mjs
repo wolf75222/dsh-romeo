@@ -768,12 +768,19 @@ check('correct 返回清理后的完整 prompt', corrected.json.ok === true && c
 check('correct 使用专用用途', captured.purpose === 'prompt-correction', captured.purpose);
 const missingDraft = await request('/dsh-prompt-predict/complete', 'POST', { sessionId: 'session-test', cursor: 0 });
 check('complete 缺草稿返回 400', missingDraft.status === 400, String(missingDraft.status));
-const frenchError = await request('/dsh-prompt-predict/correct', 'POST', { sessionId: 'nope', draft: 'test' }, { 'x-dsh-locale': 'fr' });
-check('右键修正错误支持法文', frenchError.json.reason === 'Session introuvable', String(frenchError.json.reason));
+const frenchError = await request('/dsh-prompt-predict/correct', 'POST', { sessionId: 'nope' }, { 'x-dsh-locale': 'fr' });
+check('右键修正错误支持法文', frenchError.json.reason === 'Texte du brouillon manquant', String(frenchError.json.reason));
+const unstarted = await request('/dsh-prompt-predict/complete', 'POST', { sessionId: 'not-started', draft: 'Corrige', cursor: 7 });
+check('a session not started yet still gets a completion', unstarted.json.ok === true, JSON.stringify(unstarted.json));
 
 await new Promise((resolve) => server.close(resolve));
 for (const cleanup of cleanups) cleanup();
 check('dispose 注销路由', cleaned, String(cleaned));
 
+for (const [text, want] of [["En une phrase, c'est quoi un VPN ?", 'French'], ['How does a VPN work?', 'English'],
+  ['¿Cómo funciona una VPN para el trabajo?', 'Spanish'], ['Wie funktioniert das und ist es sicher?', 'German'],
+  ['Fix the bug in src/app.py', 'English'], ['corrige moi sa stp', 'French']]) {
+  check(`Latin-script language: ${want}`, detectLanguage(text) === want, detectLanguage(text));
+}
 console.log(`RESULT ${results.every(Boolean) ? 'PASS' : 'FAIL'} (${results.filter(Boolean).length}/${results.length})`);
 process.exit(results.every(Boolean) ? 0 : 1);

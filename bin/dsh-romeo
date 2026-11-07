@@ -23,6 +23,7 @@
 #   dsh-romeo --doctor            check this computer, SSH, ROMEO, the fiches and the key
 #   dsh-romeo --logs [-f]         the model job's log (-f: follow it, Ctrl-C to quit)
 #   dsh-romeo --setup             copy the fiches to ROMEO again (--launch does it when they changed)
+#   dsh-romeo --update            install the latest dsh-romeo (asks first); checked once a day at start
 #
 #   --completion bash|zsh   -V, --version   -h, --help
 #
@@ -1219,7 +1220,7 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
 }
 
 cmd_completion() {  # $1: bash or zsh. Options, then the values of --models, --voice and --completion.
-  local words="--models --voice --web --launch --desktop --run --serve --env --status --stop --setup --logs --doctor --completion --version --help"
+  local words="--models --voice --web --launch --desktop --run --serve --env --status --stop --setup --logs --doctor --update --completion --version --help"
   case ${1:-} in
     bash | zsh) ;;
     *) die "--completion takes bash or zsh" 'eval "$(dsh-romeo --completion zsh)"   # in ~/.zshrc' ;;
@@ -1538,7 +1539,81 @@ remember() {  # $1 variable, $2 value, $3 file: set, check, and keep for the nex
   printf '%s\n' "$2" >"$3"
 }
 
+# ---------------------------------------------------------------- updates
+
+# dsh-romeo is a git clone of its repository: an update is a fast-forward of it, then install.sh
+# (it keeps your settings). The start checks once a day, asks, and never installs on its own.
+UPDATE_STAMP=$CONFIG_DIR/update-checked
+in_time() {  # in_time SECONDS CMD...: CMD, stopped after SECONDS (macOS has no timeout(1))
+  local secs=$1 pid watcher rc; shift
+  "$@" & pid=$!
+  ( sleep "$secs"; kill "$pid" 2>/dev/null ) & watcher=$!
+  wait "$pid"; rc=$?
+  kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+  return $rc
+}
+update_upstream() {  # the branch this clone follows (origin/main), or nothing
+  git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null
+}
+update_fetch() {  # $1: seconds to wait at most
+  GIT_TERMINAL_PROMPT=0 in_time "$1" git -C "$ROOT" fetch -q 2>/dev/null
+}
+update_pending() {  # the new commits of the upstream, one line each
+  git -C "$ROOT" log --oneline --no-decorate "HEAD..$1" 2>/dev/null
+}
+cmd_update() {  # $1: --yes to install without asking
+  local up new n answer
+  git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "$ROOT is not a git clone: download dsh-romeo again" "git clone https://github.com/wolf75222/dsh-romeo"
+  up=$(update_upstream) || die "the branch of $ROOT follows no remote branch" "git -C '$ROOT' branch --set-upstream-to=origin/main"
+  update_fetch 30 || die "cannot reach the repository of dsh-romeo (network?)" "git -C '$ROOT' fetch"
+  mkdir -p "$CONFIG_DIR" && date +%s >"$UPDATE_STAMP"
+  new=$(update_pending "$up")
+  if [ -z "$new" ]; then
+    say "${G}ok${N}, dsh-romeo is up to date ($(git -C "$ROOT" rev-parse --short HEAD))"
+    return 0
+  fi
+  n=$(printf '%s\n' "$new" | wc -l | tr -d ' ')
+  say "$n new change$([ "$n" -gt 1 ] && echo s) in dsh-romeo:"
+  printf '%s\n' "$new" | head -10 | sed 's/^/          /' >&2
+  [ "$n" -le 10 ] || note "... and $((n - 10)) more"
+  if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]; then
+    die "$ROOT has local changes: commit or stash them first" "git -C '$ROOT' stash"
+  fi
+  if [ "${1:-}" != --yes ]; then
+    [ -t 0 ] || { note "not installed (no terminal to ask): dsh-romeo --update --yes"; return 0; }
+    printf '%s' "${B}dsh-romeo${N} install it now? [Y/n] " >&2
+    read -r answer || answer=n
+    case $answer in '' | y | Y | yes | o | O | oui) ;; *) note "not installed: dsh-romeo --update when you want it"; return 0 ;; esac
+  fi
+  git -C "$ROOT" merge -q --ff-only "$up" 2>/dev/null \
+    || die "cannot fast-forward $ROOT to $up (diverged history)" "git -C '$ROOT' pull --rebase"
+  ${DSH_ROMEO_INSTALL:-"$ROOT/install.sh"} --yes >&2 || die "install.sh failed after the update (the new code is in place)" "'$ROOT/install.sh'"
+  say "${G}ok${N}, dsh-romeo updated to $(git -C "$ROOT" rev-parse --short HEAD)"
+}
+# At start, once a day, in a terminal: a few seconds of fetch at most, then the offer. Off with
+# DSH_ROMEO_UPDATE_CHECK=off. $@: the command line, run again after an update.
+update_offer() {
+  [ "${DSH_ROMEO_UPDATE_CHECK:-on}" != off ] && [ -t 0 ] && [ -t 1 ] && [ -t 2 ] || return 0
+  git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  local last now up new answer
+  last=$(cat "$UPDATE_STAMP" 2>/dev/null || echo 0); now=$(date +%s)
+  [[ "$last" =~ ^[0-9]+$ ]] || last=0
+  [ $((now - last)) -ge 86400 ] || return 0
+  mkdir -p "$CONFIG_DIR" && echo "$now" >"$UPDATE_STAMP"
+  up=$(update_upstream) || return 0
+  update_fetch 5 || return 0
+  new=$(update_pending "$up")
+  [ -n "$new" ] || return 0
+  printf '%s' "${B}dsh-romeo${N} an update is available ($(printf '%s\n' "$new" | wc -l | tr -d ' ') change(s), latest: $(printf '%s\n' "$new" | head -1 | cut -d' ' -f2- | cut -c1-60)). Install it now? [y/N] " >&2
+  read -r answer || answer=n
+  case $answer in
+    y | Y | yes | o | O | oui) cmd_update --yes && exec "$ROOT/bin/dsh-romeo" "$@" ;;
+    *) note "later: dsh-romeo --update" ;;
+  esac
+}
+
 main() {
+  case "${1:-}" in -h | --help | -V | --version | --completion | --update | --env | --serve | headless) ;; *) update_offer "$@" ;; esac
   local launch=0 cmd=''
   # --models, --voice, --launch [N] and --serve, --env, --desktop in any order; then a command and its own
   # arguments (--run CMD ..., a dsh profile ...).
@@ -1584,6 +1659,10 @@ main() {
   case "${1:-}" in
     -h|--help) usage; exit 0 ;;
     -V|--version) cmd_version; exit 0 ;;
+    --update)
+      [ "$launch" -eq 0 ] || die "--launch and --update do not combine" "dsh-romeo --update"
+      cmd_update "${2:-}"
+      exit 0 ;;
     --completion) cmd_completion "${2:-}"; exit 0 ;;
     --doctor)
       [ "$launch" -eq 0 ] || die "--launch and --doctor do not combine" "dsh-romeo --doctor"

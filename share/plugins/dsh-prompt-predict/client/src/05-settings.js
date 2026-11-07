@@ -378,7 +378,7 @@
             providerGroups().map(function (g) {
               return h("option", {
                 key: g.id, value: g.id, disabled: Boolean(g.error),
-              }, g.name + "（" + g.id + (g.error ? " · " + tt(t, "settings.providerUnavailableShort") : "") + "）");
+              }, paren(g.name, g.id + (g.error ? " · " + tt(t, "settings.providerUnavailableShort") : "")));
             })),
           h("button", {
             type: "button", style: SS.linkBtn, "data-prompt-predict-refresh-models": "true",
@@ -396,7 +396,7 @@
                   var models = modelsOf(provider);
                   if (!models.length) return h("option", { value: "", disabled: true }, tt(t, "settings.noModels"));
                   return models.map(function (m) {
-                    return h("option", { key: m.id, value: m.id }, m.name + "（" + m.id + "）");
+                    return h("option", { key: m.id, value: m.id }, paren(m.name, m.id));
                   });
                 })())),
         h("p", { style: SS.muted }, tt(t, "settings.modelHint")),

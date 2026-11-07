@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
         "effort.medium": "中", "effort.high": "高", "effort.max": "最大",
         "ghost.acceptHint": "Tab 采纳 · Alt+→ 逐段采纳",
         "ghost.reroll": "换一条建议",
-        "ghost.dismiss": "Esc 忽略",
+        "ghost.dismiss": "Esc",
         "ghost.regenHint": "↓ 重新生成",
         "ghost.truncated": "已截断 · 建议调高字数上限",
         "ghost.truncatedHint": "已截断 · 到 设置 → 提示词联想 → 高级 调高「字数上限」",
@@ -178,8 +178,8 @@ window.__ModuleLoader__.load({
         "effort.off": "Off", "effort.minimal": "Minimal", "effort.low": "Low",
         "effort.medium": "Medium", "effort.high": "High", "effort.max": "Max",
         "ghost.acceptHint": "Tab to accept · Alt+→ piece by piece",
-        "ghost.reroll": "Suggest another",
-        "ghost.dismiss": "Esc to dismiss",
+        "ghost.reroll": "Another suggestion (↓)",
+        "ghost.dismiss": "Esc",
         "ghost.regenHint": "↓ regenerate",
         "ghost.truncated": "cut off · raise the output length",
         "ghost.truncatedHint": "cut off · raise Output length in Settings → Prompt suggestions → Advanced",
@@ -332,8 +332,8 @@ window.__ModuleLoader__.load({
         "effort.off": "Désactivé", "effort.minimal": "Minimal", "effort.low": "Faible",
         "effort.medium": "Moyen", "effort.high": "Élevé", "effort.max": "Max",
         "ghost.acceptHint": "Tab pour accepter · Alt+→ morceau par morceau",
-        "ghost.reroll": "Autre suggestion",
-        "ghost.dismiss": "Échap pour ignorer",
+        "ghost.reroll": "Autre suggestion (↓)",
+        "ghost.dismiss": "Échap",
         "ghost.regenHint": "↓ régénérer",
         "ghost.truncated": "coupée · augmentez la longueur",
         "ghost.truncatedHint": "coupée · augmentez Longueur de sortie dans Réglages → Suggestions de prompt → Avancé",
@@ -597,6 +597,11 @@ window.__ModuleLoader__.load({
      * 已知 key 去问翻译、跟词典比对。
      */
     function currentLang() {
+      // dsh keeps <html lang> in step with its language (zh-CN for Chinese).
+      try {
+        var doc = typeof document !== "undefined" && document.documentElement ? String(document.documentElement.lang || "").toLowerCase() : "";
+        if (doc) return doc.indexOf("zh") === 0 ? "zh" : doc.indexOf("fr") === 0 ? "fr" : "en";
+      } catch { /* the locale service below */ }
       try {
         var snap = localeService && typeof localeService.getSnapshot === "function" ? localeService.getSnapshot() : null;
         var v = snap && (snap.active || snap.locale || snap.id);
@@ -622,10 +627,19 @@ window.__ModuleLoader__.load({
     var UI_LOCALES = { zh: "zh-CN", en: "en-US", fr: "fr-FR" };
     function uiLocale() { return UI_LOCALES[currentLang()] || undefined; }
 
+    // "name (detail)": full-width parentheses in Chinese only.
+    function paren(name, detail) {
+      return currentLang() === "zh" ? name + "（" + detail + "）" : name + " (" + detail + ")";
+    }
+
     function tt(t, key, vars) {
       var fn = t || boundTranslate || fallbackTranslate;
       var text = null;
-      try { text = fn(key); } catch { text = null; }
+      // Our own dictionary for the UI language first: dsh keeps only the zh and en dictionaries of
+      // a plugin and falls back to English (or Chinese) for the other languages.
+      var lang = currentLang();
+      if (lang !== "zh" && lang !== "en" && DICT[lang] && DICT[lang][key]) text = DICT[lang][key];
+      if (text === null) try { text = fn(key); } catch { text = null; }
       if (typeof text !== "string" || !text || text === key) text = fallbackTranslate(key);
       if (vars) {
         text = text.replace(/\{(\w+)\}/g, function (m, k) {
@@ -1363,17 +1377,43 @@ window.__ModuleLoader__.load({
 
       // 渲染后按「实际视口位置 vs 期望位置」自校正：无论祖先是否有 transform、
       // 嵌套了几个包含块，都能把 ghost 拉回编辑器坐标。
-      useLayoutEffect(function () {
+      // Also after an entry animation (a transform on an ancestor while it runs) ends: the first
+      // correction was taken under it. Checked on each render and a few frames later.
+      var correctionsRef = useRef(0);
+      var correctedFor = useRef(suggestion);
+      if (correctedFor.current !== suggestion) { correctedFor.current = suggestion; correctionsRef.current = 0; }
+      var posRef = useRef(pos);
+      posRef.current = pos;
+      var correct = useCallback(function () {
         var el = ghostRef.current;
-        if (!el || !pos) return;
+        var p = posRef.current;
+        if (!el || !p) return;
         var r;
         try { r = el.getBoundingClientRect(); } catch { return; }
-        var dx = pos.left - r.left;
-        var dy = pos.top - r.top;
-        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        var dx = p.left - r.left;
+        var dy = p.top - r.top;
+        // Baselines: move by what separates the first ghost glyph from the caret's glyph box.
+        if (typeof p.glyphTop === "number") {
+          try {
+            var node = el.querySelector && el.querySelector("[data-prompt-predict-text]");
+            var textNode = node && node.firstChild;
+            var at = textNode && textNode.nodeType === 3 ? textNode.textContent.search(/\S/) : -1;
+            if (at >= 0 && typeof document.createRange === "function") {
+              var range = document.createRange();
+              range.setStart(textNode, at);
+              range.setEnd(textNode, at + 1);
+              var g = range.getBoundingClientRect();
+              if (g && g.height > 0) dy = p.glyphTop - g.top;
+            }
+          } catch { /* box comparison above */ }
+        }
+        // At most a few corrections per suggestion: sub-pixel rounding must never become a render loop.
+        if ((Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) && correctionsRef.current < 4) {
+          correctionsRef.current += 1;
           setShift(function (prev) { return { x: prev.x + dx, y: prev.y + dy }; });
         }
-      }, [pos, suggestion]);
+      }, []);
+      useLayoutEffect(function () { correct(); });
       var measure = useCallback(function () {
         var ed = findEditor(sessionId);
         // 编辑器短暂不可见（焦点/滚动切换）时保留上一帧位置，避免 ghost 闪一下消失。
@@ -1387,7 +1427,10 @@ window.__ModuleLoader__.load({
         var caret = null;
         try {
           var sel = typeof window.getSelection === "function" ? window.getSelection() : null;
-          if (sel && sel.rangeCount && ed.contains(sel.anchorNode)) {
+          // An empty box has no glyphs to follow, and its caret's height changes with the
+          // placeholder: the box itself gives the line there.
+          var hasText = String(ed.textContent || "").replace(/[\s\u200b\ufeff]/g, "") !== "";
+          if (hasText && sel && sel.rangeCount && ed.contains(sel.anchorNode)) {
             var range = sel.getRangeAt(0).cloneRange();
             var rects = typeof range.getClientRects === "function" ? range.getClientRects() : null;
             var rr = rects && rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
@@ -1396,6 +1439,10 @@ window.__ModuleLoader__.load({
         } catch { /* 选区不可用时退回编辑器起点 */ }
         var left = caret ? Math.max(caret.left, r.left + padLeft) : r.left + padLeft;
         var top = caret ? Math.max(caret.top, r.top + parseFloat(cs.paddingTop || "0")) : r.top + parseFloat(cs.paddingTop || "0");
+        // The caret spans the glyphs (font height), the ghost's line box the editor's line-height:
+        // lift it by the half-leading so both baselines meet.
+        var lineHeight = parseFloat(cs.lineHeight);
+        if (caret && caret.height > 0 && lineHeight > caret.height) top -= (lineHeight - caret.height) / 2;
         setPos(function (prev) {
           var next = {
             left: left,
@@ -1405,9 +1452,11 @@ window.__ModuleLoader__.load({
             fontSize: cs.fontSize,
             lineHeight: cs.lineHeight,
             fontWeight: cs.fontWeight,
+            // Where the ghost's first glyph must start: the caret (its glyph box).
+            glyphTop: caret && caret.height > 0 ? caret.top : null,
           };
           // Scroll and resize call this often: same geometry, no new render.
-          return prev && Object.keys(next).every(function (k) { return prev[k] === next[k]; }) ? prev : next;
+          return prev && Object.keys(next).every(function (k) { return Object.is(prev[k], next[k]); }) ? prev : next;
         });
       }, [sessionId]);
 
@@ -1424,6 +1473,14 @@ window.__ModuleLoader__.load({
           window.removeEventListener("scroll", measure, true);
         };
       }, [measure, suggestion]);
+      // Layouts that move the box without resizing it (the welcome page centers it, an entry
+      // animation runs, the sidebar opens): measure again a little later. Not on every render: the
+      // box itself moves a few pixels as the ghost shows, and following it would loop.
+      useEffect(function () {
+        var later = function () { measure(); correct(); };
+        var timers = [60, 250, 600].map(function (ms) { return setTimeout(later, ms); });
+        return function () { timers.forEach(clearTimeout); };
+      }, [suggestion, measure, correct]);
 
       useEffect(function () {
         var ed = findEditor(sessionId);
@@ -1468,7 +1525,9 @@ window.__ModuleLoader__.load({
         }, suggestion),
         // Live completion: the grey text alone, as in an IDE (Tab and Esc need no chips).
         busy || props.bare ? null : h("span", {
-          style: { display: "inline-flex", alignItems: "center", gap: 6, marginInlineStart: 8, whiteSpace: "nowrap", verticalAlign: "middle" },
+          // Centred on the text's glyph box (about 1.1667em in the system font): 24px high from the
+          // text's top, moved by half the difference.
+          style: { display: "inline-flex", alignItems: "center", gap: 6, marginInlineStart: 8, whiteSpace: "nowrap", height: 24, lineHeight: "24px", verticalAlign: "text-top", position: "relative", top: "calc((1.1667em - 24px) / 2)" },
         },
           h("button", {
             type: "button", onClick: onAccept,
@@ -1486,7 +1545,8 @@ window.__ModuleLoader__.load({
               style: { color: token("label-tertiary", colors().ghostHint), fontSize: 11, whiteSpace: "nowrap" },
             }, tt(t, "ghost.prevHint"))
             : null,
-          nextAction === "next" || nextAction === "regen"
+          // With the ↻ button there, its tooltip says ↓: no second hint for the same thing.
+          !onReroll && (nextAction === "next" || nextAction === "regen")
             ? h("span", {
               "data-prompt-predict-replace-hint": "true",
               title: tt(t, nextAction === "next" ? "ghost.nextHint" : "ghost.regenHint"),
@@ -1638,6 +1698,144 @@ window.__ModuleLoader__.load({
 
     // 空候选数组用同一引用：清空时 setState 不会因新数组触发无意义重渲染。
     // ================= 建议（composer dock 仅提供生命周期；显示覆盖到输入框内） =================
+    // Sessions whose message box has the dock (an open conversation): there the dock runs the live
+    // completion, and HeroLive (the welcome page's box, which dsh gives no dock) stays idle.
+    var docksMounted = {};
+    function setDockMounted(sessionId, delta) {
+      docksMounted[sessionId] = (docksMounted[sessionId] || 0) + delta;
+      try { window.dispatchEvent(new CustomEvent("dsh-prompt-predict:dock", { detail: { sessionId: sessionId } })); } catch { /* old runtimes */ }
+    }
+
+    // Live completion, shared by the session's dock and the welcome page's box (see HeroLive).
+    // o: sessionId, draft, enabled, liveEnabled, removed, inputPhase, inputHasOccurrences,
+    // inputActions, selfInsertAt (ref), onDraft(), onAccepted(). Returns { text, clear, accept }.
+    function useLiveCompletion(o) {
+      var sessionId = o.sessionId, draft = o.draft, enabled = o.enabled, liveEnabled = o.liveEnabled;
+      var removed = o.removed, inputPhase = o.inputPhase, inputHasOccurrences = o.inputHasOccurrences;
+      var inputActions = o.inputActions;
+      var _txt = useState(""), text = _txt[0], setText = _txt[1];
+      var liveSpanRef = useRef(null);
+      // ================= Live completion (Copilot style) =================
+      // Only a change of the draft schedules a request, 700 ms after the last key. DOM mutations,
+      // selection changes and the ghost's own rendering do not: they used to clear the ghost and
+      // start a new request in a loop. Typing the ghost's next characters shrinks it without a
+      // request; Esc keeps it away until the draft changes.
+      var liveRef = useRef({ draft: "", text: "", dismissed: null });
+      var captureEnd = function () {
+        if (!inputActions || typeof inputActions.captureInsertion !== "function") return null;
+        var shell = inputShell(sessionId);
+        var projection = shell && shell.projection;
+        if (projection && ((projection.occurrences || []).length || (projection.quotes || []).length)) return null;
+        if (!projection && inputHasOccurrences) return null;
+        var text = projection && typeof projection.detectText === "string" ? projection.detectText : draft;
+        var span;
+        try { span = inputActions.captureInsertion(); } catch { return null; }
+        return span && span.start === span.end && span.end === text.length && typeof span.draftRev === "number" ? span : null;
+      };
+      var sameSpan = function (a, b) {
+        return Boolean(a && b && a.start === b.start && a.end === b.end && a.draftRev === b.draftRev);
+      };
+      var clearLive = function () {
+        liveRef.current.text = "";
+        liveSpanRef.current = null;
+        setText("");
+      };
+
+      useEffect(function () {
+        var live = liveRef.current;
+        if (o.onDraft) o.onDraft();
+        if (live.text && draft === live.draft && enabled && liveEnabled && !removed) return;
+        if (live.text && draft.length > live.draft.length && draft.startsWith(live.draft)) {
+          var typed = draft.slice(live.draft.length);
+          var through = live.text.startsWith(typed) && live.text.length > typed.length ? captureEnd() : null;
+          if (through) {
+            live.text = live.text.slice(typed.length);
+            live.draft = draft;
+            liveSpanRef.current = through;
+            setText(live.text);
+            return;
+          }
+        }
+        live.draft = draft;
+        clearLive();
+        if (!enabled || !liveEnabled || removed || isPaused()) return;
+        if (draft === live.dismissed || draft.trim().length < 3 || /\n\s*$/.test(draft)) return;
+        if (inputPhase && inputPhase !== "plain") return;
+        // Leave the composer's command and reference menus alone.
+        if (/(?:^|\s)[/@][^\s]*$/.test(draft)) return;
+        var span = captureEnd();
+        if (!span) return;
+        var controller = new AbortController();
+        var timer = setTimeout(function () {
+          if (!sameSpan(captureEnd(), span)) return;
+          apiStream("complete", { sessionId: sessionId, draft: draft, cursor: span.start }, function () {}, controller.signal)
+            .then(function (result) {
+              if (controller.signal.aborted || !result || !result.ok) return;
+              if (typeof result.completion !== "string" || !result.completion.trim()) return;
+              if (!sameSpan(captureEnd(), span)) return;
+              live.text = result.completion;
+              live.draft = draft;
+              liveSpanRef.current = span;
+              setText(result.completion);
+            })
+            .catch(function () { /* silent: no ghost */ });
+        }, 700);
+        return function () { clearTimeout(timer); controller.abort(); };
+      }, [sessionId, draft, enabled, liveEnabled, removed, inputPhase, inputHasOccurrences]);
+
+      var acceptLive = function () {
+        var span = liveSpanRef.current;
+        var text = liveRef.current.text;
+        if (!span || !text || !inputActions || !sameSpan(captureEnd(), span)) return false;
+        if (o.selfInsertAt) o.selfInsertAt.current = Date.now();
+        var done = false;
+        try { done = Boolean(inputActions.insertText(text, span)); } catch { done = false; }
+        if (!done) {
+          // The welcome page's box refuses insertText (no started session): type it into the editor
+          // itself, where the cursor is (checked above), as a paste would.
+          var box = findEditor(sessionId);
+          try { done = Boolean(box && box.contains(document.activeElement) && document.execCommand("insertText", false, text)); } catch { done = false; }
+        }
+        if (!done) return false;
+        clearLive();
+        if (o.onAccepted) o.onAccepted();
+        return true;
+      };
+
+      useEffect(function () {
+        if (!text) return;
+        var onKey = function (event) {
+          if (event.isComposing || !isComposerFocused(sessionId, event)) return;
+          var plain = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+          if (event.key === "Tab" && plain) {
+            if (acceptLive()) {
+              event.preventDefault();
+              event.stopPropagation();
+              if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+            }
+            return;
+          }
+          if (event.key === "Escape") {
+            liveRef.current.dismissed = liveRef.current.draft;
+            clearLive();
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+          // Moving the cursor or deleting: the ghost no longer belongs there.
+          if (/^(?:Arrow|Home|End|Page)|^(?:Backspace|Delete|Enter)$/.test(event.key)) clearLive();
+        };
+        var ed = findEditor(sessionId);
+        window.addEventListener("keydown", onKey, true);
+        if (ed && typeof ed.addEventListener === "function") ed.addEventListener("mousedown", clearLive, true);
+        return function () {
+          window.removeEventListener("keydown", onKey, true);
+          if (ed && typeof ed.removeEventListener === "function") ed.removeEventListener("mousedown", clearLive, true);
+        };
+      }, [sessionId, text, inputActions]);
+      return { text: text, clear: clearLive, accept: acceptLive };
+    }
+
     function PredictionDock(props) {
       var sessionId = props.sessionId;
       var useSession = props.useSession;
@@ -1670,7 +1868,6 @@ window.__ModuleLoader__.load({
       var _mk = useState("failed"), manualErrorKind = _mk[0], setManualErrorKind = _mk[1];
       var _en = useState(true), enabled = _en[0], setEnabled = _en[1];
       var _live = useState(true), liveEnabled = _live[0], setLiveEnabled = _live[1];
-      var _lc = useState(""), liveCompletion = _lc[0], setLiveCompletion = _lc[1];
       var _cb = useState(false), correcting = _cb[0], setCorrecting = _cb[1];
       var _cn = useState(""), correctionNotice = _cn[0], setCorrectionNotice = _cn[1];
       var _swi = useState(true), switchEnabled = _swi[0], setSwitchEnabled = _swi[1];
@@ -1681,7 +1878,6 @@ window.__ModuleLoader__.load({
       var _swnt = useState(""), switchNotice = _swnt[0], setSwitchNotice = _swnt[1];
       var armed = useRef(true);
       var abortRef = useRef(null);
-      var liveSpanRef = useRef(null);
       var correctAbortRef = useRef(null);
       var correctRunRef = useRef(null);
       var sessionRef = useRef(sessionId);
@@ -1878,118 +2074,18 @@ window.__ModuleLoader__.load({
         return function () { window.removeEventListener("dsh-prompt-predict:settings", changed); };
       }, []);
 
-      // ================= Live completion (Copilot style) =================
-      // Only a change of the draft schedules a request, 700 ms after the last key. DOM mutations,
-      // selection changes and the ghost's own rendering do not: they used to clear the ghost and
-      // start a new request in a loop. Typing the ghost's next characters shrinks it without a
-      // request; Esc keeps it away until the draft changes.
-      var liveRef = useRef({ draft: "", text: "", dismissed: null });
-      var captureEnd = function () {
-        if (!inputActions || typeof inputActions.captureInsertion !== "function") return null;
-        var shell = inputShell(sessionId);
-        var projection = shell && shell.projection;
-        if (projection && ((projection.occurrences || []).length || (projection.quotes || []).length)) return null;
-        if (!projection && inputHasOccurrences) return null;
-        var text = projection && typeof projection.detectText === "string" ? projection.detectText : draft;
-        var span;
-        try { span = inputActions.captureInsertion(); } catch { return null; }
-        return span && span.start === span.end && span.end === text.length && typeof span.draftRev === "number" ? span : null;
-      };
-      var sameSpan = function (a, b) {
-        return Boolean(a && b && a.start === b.start && a.end === b.end && a.draftRev === b.draftRev);
-      };
-      var clearLive = function () {
-        liveRef.current.text = "";
-        liveSpanRef.current = null;
-        setLiveCompletion("");
-      };
-
+      var live = useLiveCompletion({
+        sessionId: sessionId, draft: draft, enabled: enabled, liveEnabled: liveEnabled, removed: removed,
+        inputPhase: inputPhase, inputHasOccurrences: inputHasOccurrences, inputActions: inputActions,
+        selfInsertAt: selfInsertAt,
+        onDraft: function () { setCorrectionNotice(""); },
+        onAccepted: function () { setSuggestion(""); },
+      });
+      var liveCompletion = live.text, clearLive = live.clear, acceptLive = live.accept;
       useEffect(function () {
-        var live = liveRef.current;
-        setCorrectionNotice("");
-        if (live.text && draft === live.draft && enabled && liveEnabled && !removed) return;
-        if (live.text && draft.length > live.draft.length && draft.startsWith(live.draft)) {
-          var typed = draft.slice(live.draft.length);
-          var through = live.text.startsWith(typed) && live.text.length > typed.length ? captureEnd() : null;
-          if (through) {
-            live.text = live.text.slice(typed.length);
-            live.draft = draft;
-            liveSpanRef.current = through;
-            setLiveCompletion(live.text);
-            return;
-          }
-        }
-        live.draft = draft;
-        clearLive();
-        if (!enabled || !liveEnabled || removed || isPaused()) return;
-        if (draft === live.dismissed || draft.trim().length < 3 || /\n\s*$/.test(draft)) return;
-        if (inputPhase && inputPhase !== "plain") return;
-        // Leave the composer's command and reference menus alone.
-        if (/(?:^|\s)[/@][^\s]*$/.test(draft)) return;
-        var span = captureEnd();
-        if (!span) return;
-        var controller = new AbortController();
-        var timer = setTimeout(function () {
-          if (!sameSpan(captureEnd(), span)) return;
-          apiStream("complete", { sessionId: sessionId, draft: draft, cursor: span.start }, function () {}, controller.signal)
-            .then(function (result) {
-              if (controller.signal.aborted || !result || !result.ok) return;
-              if (typeof result.completion !== "string" || !result.completion.trim()) return;
-              if (!sameSpan(captureEnd(), span)) return;
-              live.text = result.completion;
-              live.draft = draft;
-              liveSpanRef.current = span;
-              setLiveCompletion(result.completion);
-            })
-            .catch(function () { /* silent: no ghost */ });
-        }, 700);
-        return function () { clearTimeout(timer); controller.abort(); };
-      }, [sessionId, draft, enabled, liveEnabled, removed, inputPhase, inputHasOccurrences]);
-
-      var acceptLive = function () {
-        var span = liveSpanRef.current;
-        var text = liveRef.current.text;
-        if (!span || !text || !inputActions || !sameSpan(captureEnd(), span)) return false;
-        try {
-          selfInsertAt.current = Date.now();
-          if (!inputActions.insertText(text, span)) return false;
-        } catch { return false; }
-        clearLive();
-        setSuggestion("");
-        return true;
-      };
-
-      useEffect(function () {
-        if (!liveCompletion) return;
-        var onKey = function (event) {
-          if (event.isComposing || !isComposerFocused(sessionId, event)) return;
-          var plain = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
-          if (event.key === "Tab" && plain) {
-            if (acceptLive()) {
-              event.preventDefault();
-              event.stopPropagation();
-              if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
-            }
-            return;
-          }
-          if (event.key === "Escape") {
-            liveRef.current.dismissed = liveRef.current.draft;
-            clearLive();
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-          }
-          // Moving the cursor or deleting: the ghost no longer belongs there.
-          if (/^(?:Arrow|Home|End|Page)|^(?:Backspace|Delete|Enter)$/.test(event.key)) clearLive();
-        };
-        var ed = findEditor(sessionId);
-        window.addEventListener("keydown", onKey, true);
-        if (ed && typeof ed.addEventListener === "function") ed.addEventListener("mousedown", clearLive, true);
-        return function () {
-          window.removeEventListener("keydown", onKey, true);
-          if (ed && typeof ed.removeEventListener === "function") ed.removeEventListener("mousedown", clearLive, true);
-        };
-      }, [sessionId, liveCompletion, inputActions]);
+        setDockMounted(sessionId, 1);
+        return function () { setDockMounted(sessionId, -1); };
+      }, [sessionId]);
 
       // ================= Correction explicite via le menu DSH =================
       var runCorrection = function () {
@@ -2694,6 +2790,45 @@ window.__ModuleLoader__.load({
       return dockBody;
     }
 
+    // The welcome page's box: a session not started yet, without the dock. Only the live completion
+    // runs there (no conversation yet, so no context: the plain prompt is completed).
+    function HeroLive(props) {
+      var sessionId = props.sessionId;
+      var draft = props.useInput(function (value) { return String(value && value.draft || ""); });
+      var state = props.useInput(function (value) { return value; });
+      var removed = props.useSession(function (value) { return Boolean(value && value.removed); });
+      var _on = useState({ enabled: true, live: true }), on = _on[0], setOn = _on[1];
+      var _dk = useState(Boolean(docksMounted[sessionId] > 0)), dockHere = _dk[0], setDockHere = _dk[1];
+      var selfInsertAt = useRef(0);
+      useEffect(function () {
+        api("status").then(function (j) {
+          var e = (j && j.effective) || {};
+          setOn({ enabled: e.enabled !== false, live: e.liveEnabled !== false });
+        }).catch(function () { });
+        var settings = function (event) {
+          var d = event.detail || {};
+          setOn(function (prev) {
+            return { enabled: d.enabled !== false, live: typeof d.liveEnabled === "boolean" ? d.liveEnabled : prev.live };
+          });
+        };
+        var dock = function () { setDockHere(Boolean(docksMounted[sessionId] > 0)); };
+        window.addEventListener("dsh-prompt-predict:settings", settings);
+        window.addEventListener("dsh-prompt-predict:dock", dock);
+        dock();
+        return function () {
+          window.removeEventListener("dsh-prompt-predict:settings", settings);
+          window.removeEventListener("dsh-prompt-predict:dock", dock);
+        };
+      }, [sessionId]);
+      var live = useLiveCompletion({
+        sessionId: sessionId, draft: draft, enabled: on.enabled && !dockHere, liveEnabled: on.live, removed: removed,
+        inputPhase: state && state.phase, inputHasOccurrences: Boolean(state && (state.occurrences || []).length),
+        inputActions: props.inputActions, selfInsertAt: selfInsertAt,
+      });
+      if (dockHere || !live.text || !draft.trim()) return null;
+      return h(GhostOverlay, { suggestion: live.text, bare: true, sessionId: sessionId, onAccept: live.accept, onReroll: null, switchEnabled: false, nextAction: "off", t: props.t });
+    }
+
     // 模型能力查询带 5 分钟缓存：设置页每次打开/保存都重查的话，provider 慢时会反复卡 3.5 秒超时。
     var effortsCache = new Map();
     function getEfforts(p, m) {
@@ -3074,7 +3209,7 @@ window.__ModuleLoader__.load({
             providerGroups().map(function (g) {
               return h("option", {
                 key: g.id, value: g.id, disabled: Boolean(g.error),
-              }, g.name + "（" + g.id + (g.error ? " · " + tt(t, "settings.providerUnavailableShort") : "") + "）");
+              }, paren(g.name, g.id + (g.error ? " · " + tt(t, "settings.providerUnavailableShort") : "")));
             })),
           h("button", {
             type: "button", style: SS.linkBtn, "data-prompt-predict-refresh-models": "true",
@@ -3092,7 +3227,7 @@ window.__ModuleLoader__.load({
                   var models = modelsOf(provider);
                   if (!models.length) return h("option", { value: "", disabled: true }, tt(t, "settings.noModels"));
                   return models.map(function (m) {
-                    return h("option", { key: m.id, value: m.id }, m.name + "（" + m.id + "）");
+                    return h("option", { key: m.id, value: m.id }, paren(m.name, m.id));
                   });
                 })())),
         h("p", { style: SS.muted }, tt(t, "settings.modelHint")),
@@ -3421,6 +3556,13 @@ window.__ModuleLoader__.load({
           id: "prompt-prediction",
           order: 10,
         }, PredictionDock);
+      });
+      ctx.slots.inject("conversation.input.right", function () {
+        return ctx.slots.register({
+          name: "conversation.input.right",
+          id: "prompt-prediction-live",
+          order: 100,
+        }, HeroLive);
       });
       ctx.slots.inject("settings.section", function () {
         return ctx.slots.register({

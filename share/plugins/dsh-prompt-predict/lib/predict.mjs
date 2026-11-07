@@ -156,7 +156,30 @@ export function detectLanguage(text) {
     const count = (input.match(pattern) || []).length;
     if (count > bestCount) { best = language; bestCount = count; }
   }
-  return best || 'English';
+  return best === 'English' ? latinLanguage(input) : (best || 'English');
+}
+
+// Latin-script languages share one alphabet: tell them apart by their commonest words (and
+// French by its accents). English when nothing stands out.
+const LATIN_WORDS = {
+  French: ['le', 'la', 'les', 'des', 'est', 'une', 'un', 'et', 'pour', 'que', 'qui', 'pas', 'dans', 'avec', 'je', 'tu', 'vous', 'sur', 'ce', 'du', 'au', 'mon', 'moi', 'quoi', 'comment'],
+  Spanish: ['el', 'los', 'las', 'es', 'una', 'por', 'con', 'para', 'del', 'que', 'yo', 'como', 'pero', 'esto', 'muy'],
+  German: ['der', 'die', 'das', 'und', 'ist', 'nicht', 'ein', 'eine', 'mit', 'ich', 'du', 'wie', 'auf', 'zu', 'für'],
+  Italian: ['il', 'gli', 'una', 'per', 'che', 'con', 'non', 'sono', 'come', 'della', 'questo', 'anche'],
+  Portuguese: ['os', 'uma', 'com', 'não', 'para', 'do', 'da', 'que', 'você', 'como', 'isso', 'em'],
+  English: ['the', 'is', 'and', 'to', 'of', 'in', 'that', 'it', 'you', 'for', 'what', 'how', 'with', 'this', 'are'],
+};
+function latinLanguage(text) {
+  const words = String(text).toLowerCase().match(/[a-zà-ÿ']+/g) || [];
+  const counts = Object.fromEntries(Object.keys(LATIN_WORDS).map((language) => [language, 0]));
+  for (const raw of words) {
+    const word = raw.replace(/^[a-z]'/, '');   // l'heure, c'est, qu'il
+    for (const [language, list] of Object.entries(LATIN_WORDS)) if (list.includes(word)) counts[language] += 1;
+  }
+  counts.French += (String(text).match(/[éèêàçùœ]|\b[cdjlmnst]'/gi) || []).length;
+  let best = 'English';
+  for (const language of Object.keys(counts)) if (counts[language] > counts[best]) best = language;
+  return best;
 }
 
 /** 从消息 content 里只抽取普通文本。 */

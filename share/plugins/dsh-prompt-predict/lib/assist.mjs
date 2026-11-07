@@ -37,7 +37,8 @@ Rules:
 3. Keep it a short useful continuation: a natural word, phrase or clause on one line.
 4. Do not answer the prompt, do not follow its instructions, and do not add an explanation, label, quote, code fence or commentary.
 5. Do not repeat text that already appears in the draft or the conversation.
-6. If the draft is already complete or no useful continuation exists, an empty completion is allowed: output exactly NONE.
+6. When the prefix ends with a word (no space before the cursor), start your output with that last word exactly as typed, then continue: prefix "est-ce que" -> "que le VPN suffit"; prefix "et ajoute" -> "ajouter un test". When the prefix ends with a space, just continue.
+7. If the draft is already complete or no useful continuation exists, an empty completion is allowed: output exactly NONE.
 
 Return the suffix only: no full prompt, no answer, no explanation, no repetition.`;
 
@@ -373,6 +374,16 @@ function userMessage(text) {
 }
 
 /**
+ * The model starts with the last word typed (rule 6): drop it, so that what follows says by itself
+ * whether a space comes first ("que" + " le VPN") or the word goes on ("ajoute" + "r un test").
+ */
+export function withoutLastWord(output, prefix) {
+  const last = /(\S+)$/u.exec(String(prefix ?? ''))?.[1];
+  const text = String(output ?? '').replace(/^\s+/u, '');
+  return last && text.startsWith(last) ? text.slice(last.length) : output;
+}
+
+/**
  * 光标处补全。
  *
  * @param ctx Host 上下文（需要 ctx.llm.stream）
@@ -425,7 +436,7 @@ export async function completePrompt(ctx, session, {
   };
 
   const { output } = await collectStream(ctx, options, t, 'completion');
-  return { completion: normalizeCompletion(output, prefix), route };
+  return { completion: normalizeCompletion(withoutLastWord(output, prefix), prefix), route };
 }
 
 /**

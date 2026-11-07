@@ -73,6 +73,13 @@
           order: 10,
         }, PredictionDock);
       });
+      ctx.slots.inject("conversation.input.right", function () {
+        return ctx.slots.register({
+          name: "conversation.input.right",
+          id: "prompt-prediction-live",
+          order: 100,
+        }, HeroLive);
+      });
       ctx.slots.inject("settings.section", function () {
         return ctx.slots.register({
           name: "settings.section",

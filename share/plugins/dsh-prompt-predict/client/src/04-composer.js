@@ -1,5 +1,143 @@
     // 空候选数组用同一引用：清空时 setState 不会因新数组触发无意义重渲染。
     // ================= 建议（composer dock 仅提供生命周期；显示覆盖到输入框内） =================
+    // Sessions whose message box has the dock (an open conversation): there the dock runs the live
+    // completion, and HeroLive (the welcome page's box, which dsh gives no dock) stays idle.
+    var docksMounted = {};
+    function setDockMounted(sessionId, delta) {
+      docksMounted[sessionId] = (docksMounted[sessionId] || 0) + delta;
+      try { window.dispatchEvent(new CustomEvent("dsh-prompt-predict:dock", { detail: { sessionId: sessionId } })); } catch { /* old runtimes */ }
+    }
+
+    // Live completion, shared by the session's dock and the welcome page's box (see HeroLive).
+    // o: sessionId, draft, enabled, liveEnabled, removed, inputPhase, inputHasOccurrences,
+    // inputActions, selfInsertAt (ref), onDraft(), onAccepted(). Returns { text, clear, accept }.
+    function useLiveCompletion(o) {
+      var sessionId = o.sessionId, draft = o.draft, enabled = o.enabled, liveEnabled = o.liveEnabled;
+      var removed = o.removed, inputPhase = o.inputPhase, inputHasOccurrences = o.inputHasOccurrences;
+      var inputActions = o.inputActions;
+      var _txt = useState(""), text = _txt[0], setText = _txt[1];
+      var liveSpanRef = useRef(null);
+      // ================= Live completion (Copilot style) =================
+      // Only a change of the draft schedules a request, 700 ms after the last key. DOM mutations,
+      // selection changes and the ghost's own rendering do not: they used to clear the ghost and
+      // start a new request in a loop. Typing the ghost's next characters shrinks it without a
+      // request; Esc keeps it away until the draft changes.
+      var liveRef = useRef({ draft: "", text: "", dismissed: null });
+      var captureEnd = function () {
+        if (!inputActions || typeof inputActions.captureInsertion !== "function") return null;
+        var shell = inputShell(sessionId);
+        var projection = shell && shell.projection;
+        if (projection && ((projection.occurrences || []).length || (projection.quotes || []).length)) return null;
+        if (!projection && inputHasOccurrences) return null;
+        var text = projection && typeof projection.detectText === "string" ? projection.detectText : draft;
+        var span;
+        try { span = inputActions.captureInsertion(); } catch { return null; }
+        return span && span.start === span.end && span.end === text.length && typeof span.draftRev === "number" ? span : null;
+      };
+      var sameSpan = function (a, b) {
+        return Boolean(a && b && a.start === b.start && a.end === b.end && a.draftRev === b.draftRev);
+      };
+      var clearLive = function () {
+        liveRef.current.text = "";
+        liveSpanRef.current = null;
+        setText("");
+      };
+
+      useEffect(function () {
+        var live = liveRef.current;
+        if (o.onDraft) o.onDraft();
+        if (live.text && draft === live.draft && enabled && liveEnabled && !removed) return;
+        if (live.text && draft.length > live.draft.length && draft.startsWith(live.draft)) {
+          var typed = draft.slice(live.draft.length);
+          var through = live.text.startsWith(typed) && live.text.length > typed.length ? captureEnd() : null;
+          if (through) {
+            live.text = live.text.slice(typed.length);
+            live.draft = draft;
+            liveSpanRef.current = through;
+            setText(live.text);
+            return;
+          }
+        }
+        live.draft = draft;
+        clearLive();
+        if (!enabled || !liveEnabled || removed || isPaused()) return;
+        if (draft === live.dismissed || draft.trim().length < 3 || /\n\s*$/.test(draft)) return;
+        if (inputPhase && inputPhase !== "plain") return;
+        // Leave the composer's command and reference menus alone.
+        if (/(?:^|\s)[/@][^\s]*$/.test(draft)) return;
+        var span = captureEnd();
+        if (!span) return;
+        var controller = new AbortController();
+        var timer = setTimeout(function () {
+          if (!sameSpan(captureEnd(), span)) return;
+          apiStream("complete", { sessionId: sessionId, draft: draft, cursor: span.start }, function () {}, controller.signal)
+            .then(function (result) {
+              if (controller.signal.aborted || !result || !result.ok) return;
+              if (typeof result.completion !== "string" || !result.completion.trim()) return;
+              if (!sameSpan(captureEnd(), span)) return;
+              live.text = result.completion;
+              live.draft = draft;
+              liveSpanRef.current = span;
+              setText(result.completion);
+            })
+            .catch(function () { /* silent: no ghost */ });
+        }, 700);
+        return function () { clearTimeout(timer); controller.abort(); };
+      }, [sessionId, draft, enabled, liveEnabled, removed, inputPhase, inputHasOccurrences]);
+
+      var acceptLive = function () {
+        var span = liveSpanRef.current;
+        var text = liveRef.current.text;
+        if (!span || !text || !inputActions || !sameSpan(captureEnd(), span)) return false;
+        if (o.selfInsertAt) o.selfInsertAt.current = Date.now();
+        var done = false;
+        try { done = Boolean(inputActions.insertText(text, span)); } catch { done = false; }
+        if (!done) {
+          // The welcome page's box refuses insertText (no started session): type it into the editor
+          // itself, where the cursor is (checked above), as a paste would.
+          var box = findEditor(sessionId);
+          try { done = Boolean(box && box.contains(document.activeElement) && document.execCommand("insertText", false, text)); } catch { done = false; }
+        }
+        if (!done) return false;
+        clearLive();
+        if (o.onAccepted) o.onAccepted();
+        return true;
+      };
+
+      useEffect(function () {
+        if (!text) return;
+        var onKey = function (event) {
+          if (event.isComposing || !isComposerFocused(sessionId, event)) return;
+          var plain = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+          if (event.key === "Tab" && plain) {
+            if (acceptLive()) {
+              event.preventDefault();
+              event.stopPropagation();
+              if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+            }
+            return;
+          }
+          if (event.key === "Escape") {
+            liveRef.current.dismissed = liveRef.current.draft;
+            clearLive();
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+          // Moving the cursor or deleting: the ghost no longer belongs there.
+          if (/^(?:Arrow|Home|End|Page)|^(?:Backspace|Delete|Enter)$/.test(event.key)) clearLive();
+        };
+        var ed = findEditor(sessionId);
+        window.addEventListener("keydown", onKey, true);
+        if (ed && typeof ed.addEventListener === "function") ed.addEventListener("mousedown", clearLive, true);
+        return function () {
+          window.removeEventListener("keydown", onKey, true);
+          if (ed && typeof ed.removeEventListener === "function") ed.removeEventListener("mousedown", clearLive, true);
+        };
+      }, [sessionId, text, inputActions]);
+      return { text: text, clear: clearLive, accept: acceptLive };
+    }
+
     function PredictionDock(props) {
       var sessionId = props.sessionId;
       var useSession = props.useSession;
@@ -32,7 +170,6 @@
       var _mk = useState("failed"), manualErrorKind = _mk[0], setManualErrorKind = _mk[1];
       var _en = useState(true), enabled = _en[0], setEnabled = _en[1];
       var _live = useState(true), liveEnabled = _live[0], setLiveEnabled = _live[1];
-      var _lc = useState(""), liveCompletion = _lc[0], setLiveCompletion = _lc[1];
       var _cb = useState(false), correcting = _cb[0], setCorrecting = _cb[1];
       var _cn = useState(""), correctionNotice = _cn[0], setCorrectionNotice = _cn[1];
       var _swi = useState(true), switchEnabled = _swi[0], setSwitchEnabled = _swi[1];
@@ -43,7 +180,6 @@
       var _swnt = useState(""), switchNotice = _swnt[0], setSwitchNotice = _swnt[1];
       var armed = useRef(true);
       var abortRef = useRef(null);
-      var liveSpanRef = useRef(null);
       var correctAbortRef = useRef(null);
       var correctRunRef = useRef(null);
       var sessionRef = useRef(sessionId);
@@ -240,118 +376,18 @@
         return function () { window.removeEventListener("dsh-prompt-predict:settings", changed); };
       }, []);
 
-      // ================= Live completion (Copilot style) =================
-      // Only a change of the draft schedules a request, 700 ms after the last key. DOM mutations,
-      // selection changes and the ghost's own rendering do not: they used to clear the ghost and
-      // start a new request in a loop. Typing the ghost's next characters shrinks it without a
-      // request; Esc keeps it away until the draft changes.
-      var liveRef = useRef({ draft: "", text: "", dismissed: null });
-      var captureEnd = function () {
-        if (!inputActions || typeof inputActions.captureInsertion !== "function") return null;
-        var shell = inputShell(sessionId);
-        var projection = shell && shell.projection;
-        if (projection && ((projection.occurrences || []).length || (projection.quotes || []).length)) return null;
-        if (!projection && inputHasOccurrences) return null;
-        var text = projection && typeof projection.detectText === "string" ? projection.detectText : draft;
-        var span;
-        try { span = inputActions.captureInsertion(); } catch { return null; }
-        return span && span.start === span.end && span.end === text.length && typeof span.draftRev === "number" ? span : null;
-      };
-      var sameSpan = function (a, b) {
-        return Boolean(a && b && a.start === b.start && a.end === b.end && a.draftRev === b.draftRev);
-      };
-      var clearLive = function () {
-        liveRef.current.text = "";
-        liveSpanRef.current = null;
-        setLiveCompletion("");
-      };
-
+      var live = useLiveCompletion({
+        sessionId: sessionId, draft: draft, enabled: enabled, liveEnabled: liveEnabled, removed: removed,
+        inputPhase: inputPhase, inputHasOccurrences: inputHasOccurrences, inputActions: inputActions,
+        selfInsertAt: selfInsertAt,
+        onDraft: function () { setCorrectionNotice(""); },
+        onAccepted: function () { setSuggestion(""); },
+      });
+      var liveCompletion = live.text, clearLive = live.clear, acceptLive = live.accept;
       useEffect(function () {
-        var live = liveRef.current;
-        setCorrectionNotice("");
-        if (live.text && draft === live.draft && enabled && liveEnabled && !removed) return;
-        if (live.text && draft.length > live.draft.length && draft.startsWith(live.draft)) {
-          var typed = draft.slice(live.draft.length);
-          var through = live.text.startsWith(typed) && live.text.length > typed.length ? captureEnd() : null;
-          if (through) {
-            live.text = live.text.slice(typed.length);
-            live.draft = draft;
-            liveSpanRef.current = through;
-            setLiveCompletion(live.text);
-            return;
-          }
-        }
-        live.draft = draft;
-        clearLive();
-        if (!enabled || !liveEnabled || removed || isPaused()) return;
-        if (draft === live.dismissed || draft.trim().length < 3 || /\n\s*$/.test(draft)) return;
-        if (inputPhase && inputPhase !== "plain") return;
-        // Leave the composer's command and reference menus alone.
-        if (/(?:^|\s)[/@][^\s]*$/.test(draft)) return;
-        var span = captureEnd();
-        if (!span) return;
-        var controller = new AbortController();
-        var timer = setTimeout(function () {
-          if (!sameSpan(captureEnd(), span)) return;
-          apiStream("complete", { sessionId: sessionId, draft: draft, cursor: span.start }, function () {}, controller.signal)
-            .then(function (result) {
-              if (controller.signal.aborted || !result || !result.ok) return;
-              if (typeof result.completion !== "string" || !result.completion.trim()) return;
-              if (!sameSpan(captureEnd(), span)) return;
-              live.text = result.completion;
-              live.draft = draft;
-              liveSpanRef.current = span;
-              setLiveCompletion(result.completion);
-            })
-            .catch(function () { /* silent: no ghost */ });
-        }, 700);
-        return function () { clearTimeout(timer); controller.abort(); };
-      }, [sessionId, draft, enabled, liveEnabled, removed, inputPhase, inputHasOccurrences]);
-
-      var acceptLive = function () {
-        var span = liveSpanRef.current;
-        var text = liveRef.current.text;
-        if (!span || !text || !inputActions || !sameSpan(captureEnd(), span)) return false;
-        try {
-          selfInsertAt.current = Date.now();
-          if (!inputActions.insertText(text, span)) return false;
-        } catch { return false; }
-        clearLive();
-        setSuggestion("");
-        return true;
-      };
-
-      useEffect(function () {
-        if (!liveCompletion) return;
-        var onKey = function (event) {
-          if (event.isComposing || !isComposerFocused(sessionId, event)) return;
-          var plain = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
-          if (event.key === "Tab" && plain) {
-            if (acceptLive()) {
-              event.preventDefault();
-              event.stopPropagation();
-              if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
-            }
-            return;
-          }
-          if (event.key === "Escape") {
-            liveRef.current.dismissed = liveRef.current.draft;
-            clearLive();
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-          }
-          // Moving the cursor or deleting: the ghost no longer belongs there.
-          if (/^(?:Arrow|Home|End|Page)|^(?:Backspace|Delete|Enter)$/.test(event.key)) clearLive();
-        };
-        var ed = findEditor(sessionId);
-        window.addEventListener("keydown", onKey, true);
-        if (ed && typeof ed.addEventListener === "function") ed.addEventListener("mousedown", clearLive, true);
-        return function () {
-          window.removeEventListener("keydown", onKey, true);
-          if (ed && typeof ed.removeEventListener === "function") ed.removeEventListener("mousedown", clearLive, true);
-        };
-      }, [sessionId, liveCompletion, inputActions]);
+        setDockMounted(sessionId, 1);
+        return function () { setDockMounted(sessionId, -1); };
+      }, [sessionId]);
 
       // ================= Correction explicite via le menu DSH =================
       var runCorrection = function () {
@@ -1054,5 +1090,44 @@
         dockBody = h(ComposerHint, { sessionId: sessionId, below: true, text: tt(t, "dock.paused", { time: formatLeft(pausedUntil - pauseNow) }), t: t });
       }
       return dockBody;
+    }
+
+    // The welcome page's box: a session not started yet, without the dock. Only the live completion
+    // runs there (no conversation yet, so no context: the plain prompt is completed).
+    function HeroLive(props) {
+      var sessionId = props.sessionId;
+      var draft = props.useInput(function (value) { return String(value && value.draft || ""); });
+      var state = props.useInput(function (value) { return value; });
+      var removed = props.useSession(function (value) { return Boolean(value && value.removed); });
+      var _on = useState({ enabled: true, live: true }), on = _on[0], setOn = _on[1];
+      var _dk = useState(Boolean(docksMounted[sessionId] > 0)), dockHere = _dk[0], setDockHere = _dk[1];
+      var selfInsertAt = useRef(0);
+      useEffect(function () {
+        api("status").then(function (j) {
+          var e = (j && j.effective) || {};
+          setOn({ enabled: e.enabled !== false, live: e.liveEnabled !== false });
+        }).catch(function () { });
+        var settings = function (event) {
+          var d = event.detail || {};
+          setOn(function (prev) {
+            return { enabled: d.enabled !== false, live: typeof d.liveEnabled === "boolean" ? d.liveEnabled : prev.live };
+          });
+        };
+        var dock = function () { setDockHere(Boolean(docksMounted[sessionId] > 0)); };
+        window.addEventListener("dsh-prompt-predict:settings", settings);
+        window.addEventListener("dsh-prompt-predict:dock", dock);
+        dock();
+        return function () {
+          window.removeEventListener("dsh-prompt-predict:settings", settings);
+          window.removeEventListener("dsh-prompt-predict:dock", dock);
+        };
+      }, [sessionId]);
+      var live = useLiveCompletion({
+        sessionId: sessionId, draft: draft, enabled: on.enabled && !dockHere, liveEnabled: on.live, removed: removed,
+        inputPhase: state && state.phase, inputHasOccurrences: Boolean(state && (state.occurrences || []).length),
+        inputActions: props.inputActions, selfInsertAt: selfInsertAt,
+      });
+      if (dockHere || !live.text || !draft.trim()) return null;
+      return h(GhostOverlay, { suggestion: live.text, bare: true, sessionId: sessionId, onAccept: live.accept, onReroll: null, switchEnabled: false, nextAction: "off", t: props.t });
     }
 

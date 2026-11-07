@@ -333,17 +333,43 @@
 
       // 渲染后按「实际视口位置 vs 期望位置」自校正：无论祖先是否有 transform、
       // 嵌套了几个包含块，都能把 ghost 拉回编辑器坐标。
-      useLayoutEffect(function () {
+      // Also after an entry animation (a transform on an ancestor while it runs) ends: the first
+      // correction was taken under it. Checked on each render and a few frames later.
+      var correctionsRef = useRef(0);
+      var correctedFor = useRef(suggestion);
+      if (correctedFor.current !== suggestion) { correctedFor.current = suggestion; correctionsRef.current = 0; }
+      var posRef = useRef(pos);
+      posRef.current = pos;
+      var correct = useCallback(function () {
         var el = ghostRef.current;
-        if (!el || !pos) return;
+        var p = posRef.current;
+        if (!el || !p) return;
         var r;
         try { r = el.getBoundingClientRect(); } catch { return; }
-        var dx = pos.left - r.left;
-        var dy = pos.top - r.top;
-        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        var dx = p.left - r.left;
+        var dy = p.top - r.top;
+        // Baselines: move by what separates the first ghost glyph from the caret's glyph box.
+        if (typeof p.glyphTop === "number") {
+          try {
+            var node = el.querySelector && el.querySelector("[data-prompt-predict-text]");
+            var textNode = node && node.firstChild;
+            var at = textNode && textNode.nodeType === 3 ? textNode.textContent.search(/\S/) : -1;
+            if (at >= 0 && typeof document.createRange === "function") {
+              var range = document.createRange();
+              range.setStart(textNode, at);
+              range.setEnd(textNode, at + 1);
+              var g = range.getBoundingClientRect();
+              if (g && g.height > 0) dy = p.glyphTop - g.top;
+            }
+          } catch { /* box comparison above */ }
+        }
+        // At most a few corrections per suggestion: sub-pixel rounding must never become a render loop.
+        if ((Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) && correctionsRef.current < 4) {
+          correctionsRef.current += 1;
           setShift(function (prev) { return { x: prev.x + dx, y: prev.y + dy }; });
         }
-      }, [pos, suggestion]);
+      }, []);
+      useLayoutEffect(function () { correct(); });
       var measure = useCallback(function () {
         var ed = findEditor(sessionId);
         // 编辑器短暂不可见（焦点/滚动切换）时保留上一帧位置，避免 ghost 闪一下消失。
@@ -357,7 +383,10 @@
         var caret = null;
         try {
           var sel = typeof window.getSelection === "function" ? window.getSelection() : null;
-          if (sel && sel.rangeCount && ed.contains(sel.anchorNode)) {
+          // An empty box has no glyphs to follow, and its caret's height changes with the
+          // placeholder: the box itself gives the line there.
+          var hasText = String(ed.textContent || "").replace(/[\s\u200b\ufeff]/g, "") !== "";
+          if (hasText && sel && sel.rangeCount && ed.contains(sel.anchorNode)) {
             var range = sel.getRangeAt(0).cloneRange();
             var rects = typeof range.getClientRects === "function" ? range.getClientRects() : null;
             var rr = rects && rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
@@ -366,6 +395,10 @@
         } catch { /* 选区不可用时退回编辑器起点 */ }
         var left = caret ? Math.max(caret.left, r.left + padLeft) : r.left + padLeft;
         var top = caret ? Math.max(caret.top, r.top + parseFloat(cs.paddingTop || "0")) : r.top + parseFloat(cs.paddingTop || "0");
+        // The caret spans the glyphs (font height), the ghost's line box the editor's line-height:
+        // lift it by the half-leading so both baselines meet.
+        var lineHeight = parseFloat(cs.lineHeight);
+        if (caret && caret.height > 0 && lineHeight > caret.height) top -= (lineHeight - caret.height) / 2;
         setPos(function (prev) {
           var next = {
             left: left,
@@ -375,9 +408,11 @@
             fontSize: cs.fontSize,
             lineHeight: cs.lineHeight,
             fontWeight: cs.fontWeight,
+            // Where the ghost's first glyph must start: the caret (its glyph box).
+            glyphTop: caret && caret.height > 0 ? caret.top : null,
           };
           // Scroll and resize call this often: same geometry, no new render.
-          return prev && Object.keys(next).every(function (k) { return prev[k] === next[k]; }) ? prev : next;
+          return prev && Object.keys(next).every(function (k) { return Object.is(prev[k], next[k]); }) ? prev : next;
         });
       }, [sessionId]);
 
@@ -394,6 +429,14 @@
           window.removeEventListener("scroll", measure, true);
         };
       }, [measure, suggestion]);
+      // Layouts that move the box without resizing it (the welcome page centers it, an entry
+      // animation runs, the sidebar opens): measure again a little later. Not on every render: the
+      // box itself moves a few pixels as the ghost shows, and following it would loop.
+      useEffect(function () {
+        var later = function () { measure(); correct(); };
+        var timers = [60, 250, 600].map(function (ms) { return setTimeout(later, ms); });
+        return function () { timers.forEach(clearTimeout); };
+      }, [suggestion, measure, correct]);
 
       useEffect(function () {
         var ed = findEditor(sessionId);
@@ -438,7 +481,9 @@
         }, suggestion),
         // Live completion: the grey text alone, as in an IDE (Tab and Esc need no chips).
         busy || props.bare ? null : h("span", {
-          style: { display: "inline-flex", alignItems: "center", gap: 6, marginInlineStart: 8, whiteSpace: "nowrap", verticalAlign: "middle" },
+          // Centred on the text's glyph box (about 1.1667em in the system font): 24px high from the
+          // text's top, moved by half the difference.
+          style: { display: "inline-flex", alignItems: "center", gap: 6, marginInlineStart: 8, whiteSpace: "nowrap", height: 24, lineHeight: "24px", verticalAlign: "text-top", position: "relative", top: "calc((1.1667em - 24px) / 2)" },
         },
           h("button", {
             type: "button", onClick: onAccept,
@@ -456,7 +501,8 @@
               style: { color: token("label-tertiary", colors().ghostHint), fontSize: 11, whiteSpace: "nowrap" },
             }, tt(t, "ghost.prevHint"))
             : null,
-          nextAction === "next" || nextAction === "regen"
+          // With the ↻ button there, its tooltip says ↓: no second hint for the same thing.
+          !onReroll && (nextAction === "next" || nextAction === "regen")
             ? h("span", {
               "data-prompt-predict-replace-hint": "true",
               title: tt(t, nextAction === "next" ? "ghost.nextHint" : "ghost.regenHint"),

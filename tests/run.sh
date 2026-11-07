@@ -579,6 +579,33 @@ for t in predict assist client-render; do
   check "dsh-prompt-predict: test/$t.mjs" has "^RESULT PASS"
 done
 
+# --update: a fast-forward of the clone, then install.sh (replaced here), asked first.
+U=$T/update; mkdir -p "$U"
+git clone -q --bare "$ROOT" "$U/up.git" 2>/dev/null
+rsync -a --exclude node_modules "$ROOT/" "$U/clone/"
+G() { git -c user.name=test -c user.email=test@example.invalid "$@"; }
+G -C "$U/clone" add -A >/dev/null 2>&1; G -C "$U/clone" commit -qm wip >/dev/null 2>&1
+git -C "$U/clone" remote set-url origin "$U/up.git"
+git -C "$U/clone" push -qf origin HEAD:main 2>/dev/null; git -C "$U/clone" fetch -q
+git -C "$U/clone" branch -q --set-upstream-to=origin/main 2>/dev/null
+out=$("$U/clone/bin/dsh-romeo" --update </dev/null 2>&1)
+check "--update: up to date" has "ok.*dsh-romeo is up to date"
+git clone -q "$U/up.git" "$U/other" 2>/dev/null; echo news >"$U/other/NEWS"
+G -C "$U/other" add NEWS; G -C "$U/other" commit -qm "A new feature"; git -C "$U/other" push -q origin HEAD:main 2>/dev/null
+out=$("$U/clone/bin/dsh-romeo" --update </dev/null 2>&1)
+check "--update: the new change listed" has "1 new change in dsh-romeo"
+check "--update: its title shown" has "A new feature"
+check "--update: no terminal, nothing installed" has "not installed (no terminal to ask)"
+check "--update: still behind" test ! -f "$U/clone/NEWS"
+out=$(DSH_ROMEO_INSTALL="echo install-ran" "$U/clone/bin/dsh-romeo" --update --yes </dev/null 2>&1)
+check "--update --yes: fast-forwarded" test -f "$U/clone/NEWS"
+check "--update --yes: install.sh run" has "install-ran"
+check "--update --yes: says it" has "ok.*dsh-romeo updated to"
+echo local >>"$U/clone/README.md"; echo more >"$U/other/NEWS"; G -C "$U/other" commit -qam more; git -C "$U/other" push -q origin HEAD:main 2>/dev/null
+out=$(DSH_ROMEO_INSTALL=true "$U/clone/bin/dsh-romeo" --update --yes </dev/null 2>&1)
+check "--update: local changes stop it" has "has local changes"
+check "--update: --help lists it" bash -c "'$ROOT/bin/dsh-romeo' --help 2>&1 | grep -q -- '--update'"
+
 # The romeo skill: frontmatter dsh accepts, links that resolve, and its env.sh against the fake ROMEO.
 SKILL=$ROOT/share/skills/romeo
 out=$(sed -n '1,/^---$/{/^---$/d;p;}' "$SKILL/SKILL.md" | sed -n '1,4p')

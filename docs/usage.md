@@ -26,7 +26,7 @@ git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/
 
 | Plugin | |
 |---|---|
-| dsh-prompt-predict ([dsh-romeo's build](../share/plugins/dsh-prompt-predict) of [ferrisching's plugin](https://github.com/ferrisching/dsh-prompt-predict)) | completes your prompt as you type (grey text at the cursor after 700 ms: Tab inserts it, Esc hides it), corrects it on right-click ("Correct the prompt": spelling, grammar, spacing; paths, code and commands kept), and suggests your next prompt after each answer; with `kimi+deepseek`, dsh-romeo points it to DeepSeek without reasoning (about 0.3 s per completion); otherwise it follows the session's model |
+| dsh-prompt-predict ([dsh-romeo's build](../share/plugins/dsh-prompt-predict) of [ferrisching's plugin](https://github.com/ferrisching/dsh-prompt-predict)) | completes your prompt as you type (grey text at the cursor after 700 ms: Tab inserts it, Esc hides it; with the session's last messages as context, or the prompt alone on a session not started yet), corrects it on right-click ("Correct the prompt": spelling, grammar, spacing; paths, code and commands kept), and suggests your next prompt after each answer; with `kimi+deepseek`, dsh-romeo points it to DeepSeek without reasoning (about 0.3 s per completion); otherwise it follows the session's model |
 | [dsh-sidenote](https://github.com/g-yixuan/dsh-sidenote) | side chat: a temporary conversation seeded from the session, whose answer comes back to the main thread |
 | [dsh-context](https://github.com/bowenliang123/dsh-context) | context dashboard (`/context`, right sidebar): what fills the context, how it grows over the session, cache hits and an estimated cost; in dsh's language (French, English and others). It sends none of your sessions out: it only reads its latest version on npm and a list of suggested plugins from its GitHub repository (or the gh-proxy.org mirror) |
 
@@ -61,6 +61,7 @@ Host romeo
 | `dsh-romeo --logs [-f]` | the last 40 lines of the agent's model job log (`-f` follows it) |
 | `dsh-romeo --version`, `--help` | `-V`, `-h`: the versions of dsh-romeo, dsh, the app's dsh and Node.js |
 | `dsh-romeo --setup` | copies the models' fiches and the job clean-up to ROMEO again; `--launch` also does it, for the fiches it launches, when this version's differ |
+| `dsh-romeo --update` | fetches dsh-romeo's repository, lists the new changes and, once you say yes, fast-forwards your clone and runs `install.sh` again (it keeps your settings); `--update --yes` does not ask. At start (in a terminal, once a day, 5 s at most) dsh-romeo offers the update itself, no by default; `DSH_ROMEO_UPDATE_CHECK=off` turns that off |
 | `dsh-romeo --models kimi ...` | the models, kept for the next runs (see below); options go in any order |
 | `dsh-romeo --voice on --launch` | voice input: dsh's microphone button, transcribed by Whisper on ROMEO (see below); kept for the next runs |
 | `dsh-romeo --web on` | web search through RustXNG on the ROMEO login node (see below); kept for the next runs |
