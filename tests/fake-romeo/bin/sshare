@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Fake sshare -hP -U -A PROJECT -o FairShare: FAKE_FAIRSHARE (0.5).
+echo "${FAKE_FAIRSHARE:-0.5}"

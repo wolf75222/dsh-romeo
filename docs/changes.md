@@ -4,6 +4,10 @@
 
 ## 2026-11-07
 
+- `--estimate` says why it waits (free GPU nodes and how many are down, the project's 60 GPUs shared by its members and when enough comes back, other projects' jobs first by fair-share, your own limit), the longest job that starts now, the agent's model alone when that starts sooner, a coming ROMEO stop and what fits before it (`--launch` warns too), when dsh can use the models (your own loading times); `--watch` notifies when everything can start.
+- `--history` (past jobs: waited, loaded, ran, how they ended), `--usage` (GPU hours this month, the running jobs' cost), `--top` (live: agents, tokens/s, KV cache, per job), `--clean` (old job logs on ROMEO), `--doctor --fix`, `--models X --switch` (other models in the desktop app without a restart).
+- A watcher on the ROMEO login node stops the jobs after 60 minutes without a request (`DSH_ROMEO_IDLE_STOP`) and starts the next job 40 minutes before one ends while you use it (`DSH_ROMEO_RELAY`).
+- dsh-romeo-status, a plugin installed on: a badge beside dsh's input box when a model loads or queues, a job ends soon, a job is gone, or the idle stop is near.
 - `dsh-romeo --estimate`: when all your models would be running if launched now (Slurm's own estimate, `sbatch --test-only`, nothing submitted), the jobs that take whole nodes estimated together; then each model alone, the free GPU nodes, your GPUs against your limit.
 - `dsh-romeo --update`: installs the latest dsh-romeo (lists the changes, asks, fast-forwards the clone, runs `install.sh`). Each start (in a terminal) checks and offers it, no by default; `DSH_ROMEO_UPDATE_CHECK=off`.
 - dsh-prompt-predict (dsh-romeo's build): the completion also works in the box of a session not started yet (the welcome page), from the prompt alone; it lines up with your text to the pixel (baseline, after the welcome page's animation too); the spacing is right ("que" + " le VPN", "ajoute" + "r"); suggestions follow the conversation's language among Latin-script languages (French was taken for English); lighter hints (Tab · ↻ · Échap) centred on the text; French everywhere, where dsh fell back to English or Chinese for a plugin.

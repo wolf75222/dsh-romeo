@@ -5,6 +5,8 @@ acct=$(sacct -X -n -P -S now-2days --name="$1" -o JobID,State,End,NodeList,ExitC
 echo "acct=$acct"
 id=${acct%%|*}
 [ -n "$id" ] || exit 0
+# Stopped by dsh-romeo's watcher (share/watch.sh) after a time without requests: "idle=MINUTES".
+awk -v id="$id" '$2 == "stopped" { for (i = 3; i < NF - 1; i++) if ($i == id) print "idle=" $NF }' ~/.dsh-romeo/watch.log 2>/dev/null | tail -1
 tail -n 400 ~/.romeollmtool/logs/slurm-$id.err ~/.romeollmtool/logs/slurm-$id.out 2>/dev/null | sed -E 's/\[[0-9;]*m//g' |
   grep -oE 'Free memory on device[^(]*\([0-9.]+/[0-9.]+ GiB\) on startup is less than desired|No available memory for the cache blocks|CUDA out of memory|OutOfMemoryError|DUE TO TIME LIMIT|Out Of Memory|oom-kill|NCCL error|Address already in use|Engine core initialization failed|No such file or directory: .[^ ]*' |
   sort -u | sed 's/^/hit=/'

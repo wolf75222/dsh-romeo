@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Fake setsid (macOS has none): runs the command.
+exec "$@"

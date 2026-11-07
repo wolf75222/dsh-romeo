@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
-# Fake sacctmgr show assoc ... format=GrpTRES: ROMEO's per-user limit.
-echo "cpu=1536,gres/gpu=${FAKE_GPU_LIMIT:-60}"
+# Fake sacctmgr show assoc ... format=GrpTRES (ROMEO's per-user GPU limit) or format=GrpTRESMins
+# (an hours cap: FAKE_GPU_MINUTES_CAP, none by default).
+case $* in
+  *GrpTRESMins*) [ -z "${FAKE_GPU_MINUTES_CAP:-}" ] || echo "gres/gpu=$FAKE_GPU_MINUTES_CAP" ;;
+  *) echo "cpu=1536,gres/gpu=${FAKE_GPU_LIMIT:-60}" ;;
+esac

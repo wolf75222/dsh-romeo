@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# Fake sacct for tests/run.sh: prints $FAKE_ROMEO_STATE/sacct (lines "JobID|State|End|NodeList|ExitCode"
-# preceded by the job name and a space), only those whose name is given with --name=.
-name=''
-for a in "$@"; do case $a in --name=*) name=${a#--name=} ;; esac; done
+# Fake sacct for tests/run.sh. With -o JobID,JobName,...: the lines of $FAKE_ROMEO_STATE/history
+# (share/history.sh's query, "JobID|JobName|Submit|Start|End|State|AllocTRES"). Otherwise
+# $FAKE_ROMEO_STATE/sacct (lines "JobID|State|End|NodeList|ExitCode" preceded by the job name and
+# a space), only those whose name is given with --name=.
+name='' fmt=''
+prev=''
+for a in "$@"; do
+  case $a in --name=*) name=${a#--name=} ;; esac
+  [ "$prev" = -o ] && fmt=$a
+  prev=$a
+done
+case $fmt in JobID,JobName*) cat "$FAKE_ROMEO_STATE/history" 2>/dev/null; exit 0 ;; esac
 [ -f "$FAKE_ROMEO_STATE/sacct" ] || exit 0
 awk -v n="$name" '$1 == n { sub(/^[^ ]+ /, ""); print }' "$FAKE_ROMEO_STATE/sacct"

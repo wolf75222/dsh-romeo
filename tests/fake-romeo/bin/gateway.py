@@ -35,6 +35,16 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
+        if self.path == "/metrics":  # vLLM's counters, no key (as on ROMEO, from the login node)
+            gen = int(time.time() * 50)
+            data = ('vllm:num_requests_running{engine="0"} 3.0\nvllm:num_requests_waiting{engine="0"} 1.0\n'
+                    'vllm:kv_cache_usage_perc{engine="0"} 0.25\nvllm:generation_tokens_total{engine="0"} %d.0\n'
+                    'vllm:prompt_tokens_total{engine="0"} 1000.0\n' % gen).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if self.authorized():
             self.reply(200, {"data": [{"id": m} for m in sorted(ready_models())]})
 

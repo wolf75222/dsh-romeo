@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Installs the plugins of share/plugins.txt in one dsh profile, turned off: the package goes into
+# Installs the plugins of share/plugins.txt in one dsh profile, turned off (on for a line that starts
+# with +): the package goes into
 # the profile, its bundle stays out of the profile's selection, and the Plugins page of dsh turns it
 # on. A plugin already in the profile keeps its state (enabled or not); one whose installed version
 # no longer fits the running dsh (its engines.dsh range) is moved to the plugin's latest version.
@@ -69,6 +70,7 @@ version_of() { node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "
 status=0
 while read -r spec what; do
   case $spec in '' | \#*) continue ;; esac
+  on=0; case $spec in +*) on=1; spec=${spec#+} ;; esac
   spec=${spec//\{ROOT\}/$ROOT}
   name=${spec%@*}
   # A plugin shipped in this repository replaces any other version of it, on or off as it was.
@@ -108,8 +110,8 @@ while read -r spec what; do
       status=1
     fi
   elif add "$spec"; then
-    turn_off "$name"
-    echo "$name: installed, off ($what)"
+    if [ "$on" = 1 ]; then echo "$name: installed, on ($what)"
+    else turn_off "$name"; echo "$name: installed, off ($what)"; fi
   elif add "$name@latest"; then
     turn_off "$name"
     echo "$name: $spec refused by dsh $DSH_VERSION, installed $(version_of "$name") instead, off (newer than the version reviewed for dsh-romeo)"

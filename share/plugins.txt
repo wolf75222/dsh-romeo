@@ -6,6 +6,8 @@
 # gh-proxy.org). Plugins that import dsh internals (dsh-answer-reviewer, dsh-task-supervisor,
 # dsh-claude-move) do not load on 0.2.2 and are left out. A link: line is a plugin shipped in this
 # repository ({ROOT}: its folder); it replaces another version of the same plugin, on or off as it was.
+# A line starting with + is installed turned on (dsh-romeo's own plugins); later runs keep your choice.
++dsh-romeo-status@link:{ROOT}/share/plugins/dsh-romeo-status   dsh-romeo's jobs in dsh: a badge when a model loads or queues, a job ends soon, the idle stop is near
 dsh-prompt-predict@link:{ROOT}/share/plugins/dsh-prompt-predict   live completion as you type (Tab), right-click correction, next-prompt suggestions (dsh-romeo's build)
 dsh-sidenote@0.8.3          side chat: a temporary conversation seeded from the session
 dsh-context@0.82.1          context dashboard: what fills the context, how it grows, cache and cost (in French or English with dsh)

@@ -23,9 +23,13 @@ Then run `dsh-romeo --launch` (in a new terminal if `install.sh` said `~/.local/
 | `dsh-romeo --launch` | starts the model on ROMEO, waits until it answers (about 10 min), opens dsh in your browser |
 | `dsh-romeo` | opens dsh on the model job already running |
 | `dsh-romeo --status` | what runs on ROMEO, and why the last job ended |
-| `dsh-romeo --estimate` | when everything would be running if you launched now (Slurm's estimate, nothing submitted) |
+| `dsh-romeo --estimate [--watch]` | when everything would be running if you launched now, and why it waits; `--watch` notifies you when it can start |
+| `dsh-romeo --top` | live: agents at work, tokens/s, KV cache, time left, per job |
+| `dsh-romeo --history`, `--usage` | past jobs (waited, loaded, ran, how they ended); GPU hours this month |
+| `dsh-romeo --models X --switch` | other models in the desktop app while it runs |
 | `dsh-romeo --stop` | stops the model jobs: they use your project's GPU hours while they run |
-| `dsh-romeo --doctor` | when something does not work: checks each piece and says what to type |
+| `dsh-romeo --doctor [--fix]` | when something does not work: checks each piece and says what to type; `--fix` repairs what it can |
+| `dsh-romeo --clean` | deletes job logs older than 30 days on ROMEO (asks first) |
 | `dsh-romeo --update` | installs the latest dsh-romeo (shows the changes, asks first); dsh-romeo also checks each time it starts and offers it (no by default) |
 
 Options go before the command and are remembered for the next runs:

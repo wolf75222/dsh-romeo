@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Fake scontrol: show res -o (the lines of $FAKE_ROMEO_STATE/reservations), show config.
+[ "$*" = "show config" ] && { echo "PriorityType            = priority/multifactor"; echo "PriorityWeightFairShare = 100000"; exit 0; }
+[ "$*" = "show res -o" ] || { echo "fake scontrol: $*" >&2; exit 2; }
+cat "$FAKE_ROMEO_STATE/reservations" 2>/dev/null
+exit 0

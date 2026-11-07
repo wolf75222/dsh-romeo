@@ -17,7 +17,8 @@ case "$1 ${2:-}" in
     case " $* " in *' --dry-run '*)  # like romeollmtool's: a banner, then the script (its #SBATCH lines here)
       case $2 in *kimi*) n=8 g=4 ;; *whisper*) n=1 g=1 ;; *) n=2 g=4 ;; esac
       echo "Fiche expérimentale : $2"; echo '#!/bin/bash'
-      echo "#SBATCH --job-name=romeollmtool-$2"; echo "#SBATCH --account=demo"; echo "#SBATCH --nodes=$n"
+      t=$(printf '%s\n' "$@" | awk 'p { print; exit } $0 == "--time" { p = 1 }')
+      echo "#SBATCH --job-name=romeollmtool-$2"; echo "#SBATCH --account=demo"; echo "#SBATCH --time=${t:-08:00:00}"; echo "#SBATCH --nodes=$n"
       echo "#SBATCH --gres=gpu:$g"; echo "#SBATCH --cpus-per-task=32"; echo "#SBATCH --mem=500G"
       exit 0 ;; esac
     id=$((900000 + $(wc -l <"$S/jobs" 2>/dev/null || echo 0) + 1))

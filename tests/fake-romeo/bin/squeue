@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
-# Fake squeue: understands -n NAME; prints "id state elapsed left nodes start reason".
-name=''
+# Fake squeue: the jobs of $FAKE_ROMEO_STATE/jobs ("id fiche start" lines), in the -o format given
+# (%i %j %T %M %L %S %D %b %r), -n NAMES (comma list) and -t R|R,PD understood. State: RUNNING, or
+# PENDING for a fiche listed in $FAKE_ROMEO_STATE/pending (reason FAKE_REASON, start FAKE_START).
+# FAKE_ELAPSED and FAKE_LEFT: the times of running jobs (0:42, 7:59:18).
 # FAKE_ROMEO_STATE/squeue-fail: slurmctld does not answer.
 [ -e "$FAKE_ROMEO_STATE/squeue-fail" ] && { echo "slurm_load_jobs error: Socket timed out on send/recv operation" >&2; exit 1; }
-fmt=''
-while [ $# -gt 0 ]; do case $1 in -n) name=$2; shift 2 ;; -o) fmt=$2; shift 2 ;; *) shift ;; esac; done
+names='' fmt='%i %T %M %L %D %S %r' states=''
+while [ $# -gt 0 ]; do case $1 in -n) names=$2; shift 2 ;; -o) fmt=$2; shift 2 ;; -t) states=$2; shift 2 ;; *) shift ;; esac; done
+# The project's GPU jobs (-A) and the queue's waiting GPU jobs with their priority: as written in
+# $FAKE_ROMEO_STATE/project-jobs ("user|state|nodes|gres|end") and queue-ahead ("nodes|gres|prio|account").
+case $fmt in
+  '%u|%T|%D|%b|%e') cat "$FAKE_ROMEO_STATE/project-jobs" 2>/dev/null; exit 0 ;;
+  '%D|%b|%Q|%a') cat "$FAKE_ROMEO_STATE/queue-ahead" 2>/dev/null; exit 0 ;;
+esac
 [ -f "$FAKE_ROMEO_STATE/jobs" ] || exit 0
-# -o '%D %b': the GPUs of each job (2 nodes of 4 here)
-[ "$fmt" = '%D %b' ] && { awk 'NF { print "2 gres/gpu:4" }' "$FAKE_ROMEO_STATE/jobs"; exit 0; }
 while read -r id fiche _; do
-  state=RUNNING reason=None
-  # FAKE_ROMEO_STATE/pending lists the fiches whose jobs wait for GPUs.
-  grep -qx "$fiche" "$FAKE_ROMEO_STATE/pending" 2>/dev/null && state=PENDING reason=${FAKE_REASON:-Resources}
-  start=N/A; [ "$state" = PENDING ] && start=${FAKE_START:-N/A}
-  [ -z "$name" ] || [ "$name" = "romeollmtool-$fiche" ] && echo "$id $state ${FAKE_ELAPSED:-0:42} ${FAKE_LEFT:-7:59:18} 2 $start $reason"
+  [ -n "$id" ] || continue
+  case ",$names," in ,,) ;; *",romeollmtool-$fiche,"*) ;; *) continue ;; esac
+  state=RUNNING reason=None start=N/A elapsed=${FAKE_ELAPSED:-0:42} left=${FAKE_LEFT:-7:59:18}
+  if grep -qx "$fiche" "$FAKE_ROMEO_STATE/pending" 2>/dev/null; then
+    state=PENDING reason=${FAKE_REASON:-Resources} start=${FAKE_START:-N/A} elapsed=0:00 left=8:00:00
+  fi
+  case $states in '' | *R,PD* | *PD,R*) ;; R) [ "$state" = RUNNING ] || continue ;; esac
+  line=$fmt
+  line=${line//%i/$id}; line=${line//%j/romeollmtool-$fiche}; line=${line//%T/$state}; line=${line//%M/$elapsed}
+  line=${line//%L/$left}; line=${line//%S/$start}; line=${line//%D/2}; line=${line//%b/gres/gpu:4}; line=${line//%r/$reason}
+  echo "$line"
 done <"$FAKE_ROMEO_STATE/jobs"
 exit 0  # squeue exits 0 when no job matches

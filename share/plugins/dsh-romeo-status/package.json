@@ -1,0 +1,23 @@
+{
+  "name": "dsh-romeo-status",
+  "version": "0.1.0",
+  "description": "dsh-romeo's model jobs on ROMEO, in dsh: a badge beside the input box when a model is loading or queued, a job ends soon (and whether the next one is coming), a job is gone, or the idle stop is near",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./client": "./client/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib", "client/client.js", "cordis.patch.yml", "README.md"],
+  "license": "MIT",
+  "keywords": ["dsh-plugin", "deepseek-harness", "dsh-romeo", "romeo", "slurm"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  }
+}

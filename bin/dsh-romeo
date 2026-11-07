@@ -5,7 +5,11 @@
 #   dsh-romeo --launch            start the model on ROMEO, wait until it answers, open dsh
 #   dsh-romeo                     open dsh on the model job already running
 #   dsh-romeo --status            what runs on ROMEO, and why the last job ended
-#   dsh-romeo --estimate          when everything would run if launched now (Slurm's estimate)
+#   dsh-romeo --estimate [--watch] when everything would run if launched now (Slurm's estimate);
+#                                 --watch: checks every minute, notifies when it can start now
+#   dsh-romeo --history [DAYS]    past model jobs: waited, loaded, ran, how they ended
+#   dsh-romeo --usage             GPU hours: this month (you, the project), what runs now
+#   dsh-romeo --top               live: agents at work, tokens/s, KV cache, time left, per job
 #   dsh-romeo --stop              stop the model jobs (they use GPU hours) and the tunnel
 #
 # Options (before the command, in any order; --models, --voice and --web are remembered)
@@ -16,13 +20,15 @@
 #
 # Other ways in
 #   dsh-romeo --desktop           the DeepSeek Harness desktop app (macOS) instead of the Web UI
+#   dsh-romeo --models X --switch other models in the desktop app while it runs (--launch: their jobs)
 #   dsh-romeo headless "a task"   one task, the answer on stdout; any dsh profile: web --port 3000
 #   dsh-romeo --run CMD [ARGS]    opencode, codex, claude, aider, python... on the ROMEO model
 #   dsh-romeo --serve             only the tunnel, then print the endpoint; --env: as variables
 #
 # When something is wrong
-#   dsh-romeo --doctor            check this computer, SSH, ROMEO, the fiches and the key
+#   dsh-romeo --doctor [--fix]    check this computer, SSH, ROMEO, the fiches and the key; --fix repairs
 #   dsh-romeo --logs [-f]         the model job's log (-f: follow it, Ctrl-C to quit)
+#   dsh-romeo --clean [--yes]     delete job logs older than 30 days on ROMEO (asks first)
 #   dsh-romeo --setup             copy the fiches to ROMEO again (--launch does it when they changed)
 #   dsh-romeo --update            install the latest dsh-romeo (asks first); each start checks too
 #
@@ -85,6 +91,9 @@ fi
 : "${DSH_ROMEO_WEB:=off}"                                # on: web search, RustXNG on the ROMEO login node
 : "${DSH_ROMEO_FICHE:=}"                                 # a fiche of your own for the agent's model
 : "${DSH_ROMEO_TIME:=08:00:00}"                          # model job duration (max 24:00:00)
+: "${DSH_ROMEO_IDLE_STOP:=60}"                           # minutes without requests before the jobs stop; off
+: "${DSH_ROMEO_RELAY:=on}"                               # on: the next job starts before one ends, while in use
+: "${DSH_ROMEO_RELAY_BEFORE:=40}"                        # minutes before the end it starts
 : "${DSH_ROMEO_PORT:=11318}"                             # local end of the tunnel
 : "${DSH_ROMEO_VOICE_PORT:=11319}"                       # local end of the tunnel to the Whisper job
 : "${DSH_ROMEO_EFFORT:=max}"                             # default reasoning effort: off, low, high, max
@@ -384,6 +393,7 @@ launch_jobs() {  # $1 jobs of the agent's model, one of the subagents' and one o
   [[ $DSH_ROMEO_TIME =~ ^([0-9]{1,2}):([0-5][0-9]):([0-5][0-9])$ ]] && [ $((10#${BASH_REMATCH[1]} * 3600 + 10#${BASH_REMATCH[2]} * 60 + 10#${BASH_REMATCH[3]})) -le 86400 ] \
     && [ "$DSH_ROMEO_TIME" != 0:00:00 ] && [ "$DSH_ROMEO_TIME" != 00:00:00 ] \
     || die "DSH_ROMEO_TIME: HH:MM:SS up to 24:00:00, not '$DSH_ROMEO_TIME'" "DSH_ROMEO_TIME=08:00:00 dsh-romeo --launch"
+  check_stop
   # 32 GPUs per Kimi job, 60 per account: a second one would wait forever.
   [ "$LABEL" != Kimi-K3.1-Pro ] || [ "$n" -eq 1 ] || die "Kimi-K3.1-Pro takes 32 GPUs: one job fits in ROMEO's 60-GPU limit" "dsh-romeo --models $DSH_ROMEO_MODELS --launch"
   JOBS=''
@@ -396,6 +406,27 @@ launch_jobs() {  # $1 jobs of the agent's model, one of the subagents' and one o
   fi
   if [ -n "$SUB_FICHE" ]; then jobs_known "$SUB_FICHE"; [ -n "$JOBS" ] || { check_weights "$SUB_FICHE" "$SUB_WEIGHTS" "$SUB_LABEL"; launch_one "$SUB_FICHE"; }; fi
   if [ -n "$VOICE_FICHE" ]; then jobs_known "$VOICE_FICHE"; [ -n "$JOBS" ] || launch_one "$VOICE_FICHE"; fi
+}
+
+# A ROMEO stop the jobs would reach (share/maint.sh): Slurm would hold them until after it, and
+# dsh-romeo would wait for nothing. Says so with a length that ends before it; in a terminal, asks.
+check_stop() {
+  local secs stop a b comment left answer
+  secs=$(($(minutes_of "$DSH_ROMEO_TIME") * 60))
+  stop=$(maint_lines | stop_in_the_way "$secs")
+  [ -n "$stop" ] || return 0
+  read -r a b _ comment <<<"$stop"
+  if [ "$a" -le "$(date +%s)" ]; then
+    say "${Y}ROMEO is stopped until $(clock_of "$b")${N}${comment:+ ${D}($comment)${N}}: the jobs start after it"
+  else
+    say "${Y}ROMEO stops $(clock_of "$a") → $(clock_of "$b")${N}${comment:+ ${D}($comment)${N}}: a job of $(dur_of "$secs") cannot end before it, so it would wait until $(clock_of "$b")"
+    left=$((a - $(date +%s) - 600))
+    [ "$left" -lt 3600 ] || note "DSH_ROMEO_TIME=$(hours_of "$left") dsh-romeo --launch   $(dur_of $((left / 1800 * 1800))), ends before it"
+  fi
+  [ -t 0 ] && [ -t 2 ] || return 0
+  printf '%s' "${B}dsh-romeo${N} launch anyway? [y/N] " >&2
+  read -r answer || answer=n
+  case $answer in y | Y | yes | o | O | oui) ;; *) say "not launched"; exit 1 ;; esac
 }
 
 # The weights of a model before its job: a job that cannot read them fails after its wait in the
@@ -542,7 +573,11 @@ why_ended() {
   [ -n "$acct" ] || return 0
   IFS='|' read -r _ state end nodes code <<<"$acct"
   WHEN=$(printf '%s' "$end" | sed -n 's/.*T\([0-9][0-9]:[0-9][0-9]\).*/\1/p')
-  local hits
+  local hits idle
+  idle=$(printf '%s\n' "$out" | sed -n 's/^idle=//p')
+  if [ -n "$idle" ]; then
+    WHY="stopped at ${WHEN:-?} after $idle min without requests (DSH_ROMEO_IDLE_STOP=$DSH_ROMEO_IDLE_STOP)"; NEXT="dsh-romeo --launch"; return 0
+  fi
   hits=$(printf '%s
 ' "$out" | sed -n 's/^hit=//p')
   # A job someone cancelled (dsh-romeo --stop, the gateway) did not fail, whatever its log says.
@@ -976,6 +1011,38 @@ run_desktop() {
   note "the tunnel is open: open the app again by hand once it is fixed, then dsh-romeo --desktop"
 }
 
+# --switch: the models change in a dsh that runs, without closing it. The desktop app reloads its
+# profile's patch by itself: rewritten, new sessions use the new models (no restart, unless the key
+# or the app's plugins changed). The Web UI reads its --patch at start only: its next start uses
+# them. prepare has made sure the models answer.
+cmd_switch() {
+  local patch=$HOME/.dsh/profiles/desktop/cordis.patch.yml app_dsh tmp switched=0
+  if pgrep -qf "/$DESKTOP_APP.app/Contents/MacOS/" && [ -f "$patch" ] && grep -q '^# Written by dsh-romeo' "$patch"; then
+    if [ "$(desktop_state)" != "$(cat "$CONFIG_DIR/desktop.key-sum" 2>/dev/null)" ]; then
+      run_desktop   # another key or other plugins: the app reads them at start only
+      switched=1
+    else
+      app_dsh=${DSH_ROMEO_DESKTOP_DSH:-$(desktop_dsh)}
+      [ -n "$app_dsh" ] || app_dsh=false
+      local PROFILES=$HOME/.dsh/profiles
+      write_overlay web "$app_dsh" desktop
+      if desktop_current "$patch"; then say "$DESKTOP_APP ${G}already on these models${N}"
+      else
+        tmp=$(mktemp "$patch.XXXXXX")
+        merge_desktop_patch "$patch" >"$tmp" && mv "$tmp" "$patch" || die "cannot write $patch" "dsh-romeo --desktop"
+        say "$DESKTOP_APP ${G}switched${N} to $LABEL${SUB_LABEL:+, subagents on $SUB_LABEL} ${D}(no restart: new sessions use them)${N}"
+      fi
+      switched=1
+    fi
+  fi
+  write_overlay web
+  if pgrep -qf "$DSH .*--patch $OVERLAY" || pgrep -qf "dsh(\.js)? [a-z-]* --patch $OVERLAY"; then
+    say "${Y}the Web UI reads its settings at start only${N}: restart it to switch it ${D}(Ctrl-C, then dsh-romeo; sessions are kept)${N}"
+  elif [ "$switched" = 0 ]; then
+    say "the next dsh-romeo start uses $LABEL${SUB_LABEL:+ with $SUB_LABEL for the subagents} ${D}(no dsh running on dsh-romeo's settings)${N}"
+  fi
+}
+
 # The key, for apps opened later from the Dock or Spotlight (they do not get this shell's
 # environment): launchd's environment for this session, until dsh-romeo --stop or a restart.
 remember_desktop_key() {
@@ -1060,7 +1127,7 @@ preflight() {  # $1: --desktop, --serve, --env, --run CMD, or a dsh profile
     --desktop)
       [ "$(uname)" = Darwin ] || die "--desktop: the DeepSeek Harness desktop app is for macOS" "dsh-romeo   (the Web UI)"
       open -Ra "$DESKTOP_APP" 2>/dev/null || die "the $DESKTOP_APP app is not installed" "open https://github.com/deepseek-ai/deepseek-harness/releases" ;;
-    --serve | --env) ;;
+    --serve | --env | --switch) ;;
     --run) command -v "$2" >/dev/null || die "--run $2: command not found on this computer" "dsh-romeo --run opencode   (or codex, claude, aider...)" ;;
     -*) die "unknown option $1" "dsh-romeo --help" ;;
     *) command -v "$DSH" >/dev/null || die "dsh is not installed" "$ROOT/install.sh   (it installs the dsh that fits your Node.js)" ;;
@@ -1131,9 +1198,11 @@ cmd_logs() {  # $1: -f to follow. The agent's model job, else any dsh-romeo job 
   rlt logs -n 40 "$id" || die "romeollmtool logs $id failed" "ssh $HOST $ROMEOLLMTOOL logs $id"
 }
 
-cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on ROMEO.
-  local failed=0 v dsh_v f
+cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on ROMEO, unless $1 is --fix.
+  local failed=0 v dsh_v f fix=0 fixed=0
+  case ${1:-} in --fix) fix=1 ;; '') ;; *) die "--doctor takes --fix or nothing, not $1" "dsh-romeo --doctor --fix" ;; esac
   pass() { status_row "$1" ok "$G" "$2"; }
+  repaired() { status_row "$1" fixed "$G" "$2"; fixed=1; }
   warn() { status_row "$1" warning "$Y" "$2"; }
   fail() { status_row "$1" failed "$R" "$2"; failed=1; }
   say "doctor ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE --web $DSH_ROMEO_WEB${N}"
@@ -1154,7 +1223,14 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
       '') warn dsh "installed, version unreadable" ;;
       *) pass dsh "$dsh_v" ;;
     esac
+  elif [ "$fix" = 1 ] && "$ROOT/install.sh" --yes >/dev/null 2>&1 && command -v "$DSH" >/dev/null; then repaired dsh "installed ($ROOT/install.sh --yes)"
   else fail dsh "not installed: $ROOT/install.sh"; fi
+  # A control socket left by a connection that died (sleep, network change): the next start would
+  # try to use it.
+  if [ -S "$CTL" ] && ! mux check; then
+    if [ "$fix" = 1 ]; then rm -f "$CTL" "$CTL.target" "$CTL.voice"; repaired socket "a dead connection's socket removed"
+    else warn socket "$CTL is left by a dead connection: dsh-romeo --doctor --fix removes it"; fi
+  fi
   # The local end of the tunnel: free, or held by dsh-romeo's own SSH connection.
   if [ -s "$CTL.target" ] && mux check; then pass port "127.0.0.1:$PORT, dsh-romeo's tunnel"
   elif command -v lsof >/dev/null && v=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -Fc 2>/dev/null | sed -n 's/^c//p' | head -1) && [ -n "$v" ] && [ "$v" != ssh ]; then
@@ -1166,7 +1242,8 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
     else pass "web row" "no web search of your own in ${DSH_HOME:-$HOME/.dsh}/cordis.patch.yml"; fi
   fi
   if grep -q 'ROMEO_LLM_KEY:' "${DSH_HOME:-$HOME/.dsh}/.credentials.yaml" 2>/dev/null; then
-    warn "dsh key" "a ROMEO_LLM_KEY saved in dsh replaces the gateway's: dsh-romeo removes it"
+    if [ "$fix" = 1 ]; then clear_stored_key; repaired "dsh key" "the ROMEO_LLM_KEY saved in dsh removed: it takes the gateway's"
+    else warn "dsh key" "a ROMEO_LLM_KEY saved in dsh replaces the gateway's: dsh-romeo removes it"; fi
   else pass "dsh key" "none saved in dsh: it takes the gateway's"; fi
   # ROMEO. A connection doctor opens is closed when it ends.
   mux check || trap disconnect EXIT
@@ -1180,6 +1257,7 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
   if [ -n "$ROMEO_PROJECT" ]; then pass project "$ROMEO_PROJECT"; else fail project "none: $ROOT/install.sh --project rXXXXXX"; fi
   for f in $FICHES; do
     if rlt catalog show "$f" >/dev/null 2>&1 </dev/null; then pass fiche "$f"
+    elif [ "$fix" = 1 ] && (cmd_setup) >/dev/null 2>&1 && rlt catalog show "$f" >/dev/null 2>&1 </dev/null; then repaired fiche "$f copied to ROMEO (dsh-romeo --setup)"
     else fail fiche "$f is not on ROMEO: dsh-romeo --setup"; continue; fi
     # The weights: a login outside the project that stores them (Kimi's) cannot launch that model.
     local w
@@ -1209,19 +1287,22 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
       *) pass key "readable (romeollmtool gateway show-key)" ;;
     esac
   fi
-  if [ -n "$url" ]; then pass gateway running; else warn gateway "stopped: the next dsh-romeo starts it"; fi
+  if [ -n "$url" ]; then pass gateway running
+  elif [ "$fix" = 1 ] && (ensure_gateway) >/dev/null 2>&1 && [ -n "$(gateway_url)" ]; then repaired gateway "started"
+  else warn gateway "stopped: the next dsh-romeo starts it"; fi
   if [ "$DSH_ROMEO_WEB" = on ]; then
     case $(rustxng check) in
       ok) pass web "RustXNG 0.28.0 on ROMEO, checksum verified" ;;
-      *) warn web "RustXNG not installed on ROMEO yet: the next dsh-romeo installs it" ;;
+      *) if [ "$fix" = 1 ] && [ "$(rustxng install)" = installed ]; then repaired web "RustXNG 0.28.0 installed on ROMEO, checksum verified"
+         else warn web "RustXNG not installed on ROMEO yet: the next dsh-romeo installs it"; fi ;;
     esac
   fi
-  [ "$failed" = 0 ] || die "doctor: a check failed"
-  say "doctor: ${G}all good${N}"
+  [ "$failed" = 0 ] || die "doctor: a check failed$([ "$fix" = 1 ] || echo "; dsh-romeo --doctor --fix repairs what it can")"
+  say "doctor: ${G}all good${N}$([ "$fixed" = 0 ] || echo " ${D}(after the repairs above)${N}")"
 }
 
 cmd_completion() {  # $1: bash or zsh. Options, then the values of --models, --voice and --completion.
-  local words="--models --voice --web --launch --desktop --run --serve --env --status --estimate --stop --setup --logs --doctor --update --completion --version --help"
+  local words="--models --voice --web --launch --desktop --run --serve --env --status --estimate --history --usage --clean --top --switch --stop --setup --logs --doctor --update --completion --version --help"
   case ${1:-} in
     bash | zsh) ;;
     *) die "--completion takes bash or zsh" 'eval "$(dsh-romeo --completion zsh)"   # in ~/.zshrc' ;;
@@ -1278,6 +1359,19 @@ cmd_status() {
       *) status_row web missing "$Y" "${D}the next dsh-romeo installs RustXNG on ROMEO${N}" ;;
     esac
   fi
+  local wlog wgen
+  wgen=$(rsh "cat ~/.dsh-romeo/watch.gen 2>/dev/null; pgrep -u \$USER -f 'dsh-romeo/[w]atch.sh' >/dev/null && echo alive; tail -n 1 ~/.dsh-romeo/watch.log 2>/dev/null | sed 's/^/log /'" 2>/dev/null || true)
+  wlog=$(sed -n 's/^log //p' <<<"$wgen")
+  if grep -qx alive <<<"$wgen"; then
+    status_row watcher running "$G" "${D}idle stop: $DSH_ROMEO_IDLE_STOP$([ "$DSH_ROMEO_IDLE_STOP" = off ] || echo " min"), relay: $DSH_ROMEO_RELAY${N}"
+  elif [ "$DSH_ROMEO_IDLE_STOP" != off ] || [ "$DSH_ROMEO_RELAY" = on ]; then
+    status_row watcher stopped "$Y" "${D}the next dsh-romeo starts it with the jobs${N}"
+  fi
+  case $wlog in
+    *' stopped '*) status_row "" "" "" "${D}last: jobs stopped at $(clock_of "${wlog%% *}") after $(awk '{ print $NF }' <<<"$wlog") min without requests${N}" ;;
+    *' relay '*) status_row "" "" "" "${D}last: $(label_of "$(awk '{ print $3 }' <<<"$wlog")") relayed at $(clock_of "${wlog%% *}"), job $(awk '{ print $5 }' <<<"$wlog")${N}" ;;
+    *' no-relay '*) status_row "" "" "" "${Y}no relay for $(label_of "$(awk '{ print $3 }' <<<"$wlog")")${N}: $(cut -d' ' -f5- <<<"$wlog")" ;;
+  esac
   printf '  %s%-25s %-8s %-8s %-5s %s%s\n' "$D" MODEL JOB STATE NODES TIME "$N" >&2
   for f in $FICHES; do
     if ! jobs=$(jobs_of_fiche "$f"); then
@@ -1287,7 +1381,7 @@ cmd_status() {
     if [ -z "$jobs" ]; then
       why_ended "$f"
       case $WHY in
-        '' | "it was cancelled"*"gateway"* | "it was cancelled at"*) printf '  %-25s %-8s %s%-8s%s %-5s %s\n' "$(label_of "$f")" - "$Y" "no job" "$N" - "${D}dsh-romeo --launch${WHY:+ (last one: $WHY)}${N}" >&2 ;;
+        '' | "it was cancelled"*"gateway"* | "it was cancelled at"* | "stopped at"*) printf '  %-25s %-8s %s%-8s%s %-5s %s\n' "$(label_of "$f")" - "$Y" "no job" "$N" - "${D}dsh-romeo --launch${WHY:+ (last one: $WHY)}${N}" >&2 ;;
         *) printf '  %-25s %-8s %s%-8s%s %-5s %s\n' "$(label_of "$f")" - "$R" "failed" "$N" - "${WHEN:+$WHEN: }$WHY" >&2 ;;
       esac
       continue
@@ -1309,30 +1403,101 @@ clock_of() {  # $1 epoch: "21:40", "11-08 09:15" on another day
   local day hm
   hm=$(date -r "$1" +%H:%M 2>/dev/null || date -d "@$1" +%H:%M)
   day=$(date -r "$1" +%m-%d 2>/dev/null || date -d "@$1" +%m-%d)
-  if [ "$day" = "$(date +%m-%d)" ]; then echo "$hm"; else echo "$day $hm"; fi
+  if [ "$day" = "$(date +%m-%d)" ]; then echo "$hm"
+  elif [ "$day" = "$(date -r $(($(date +%s) + 86400)) +%m-%d 2>/dev/null || date -d tomorrow +%m-%d)" ]; then echo "tomorrow $hm"
+  else echo "$day $hm"; fi
 }
 when_of() {  # $1 epoch, $2 now: "now", "~21:40 · in 1 h 12 min"
   local d=$(($1 - $2))
+  local c
+  c=$(clock_of "$1")
+  case $c in *' '*) c="${c% *} ~${c##* }" ;; *) c="~$c" ;; esac
   if [ "$d" -le 60 ]; then echo now
-  elif [ "$d" -ge 3600 ]; then echo "~$(clock_of "$1") · in $((d / 3600)) h $((d % 3600 / 60)) min"
-  else echo "~$(clock_of "$1") · in $(((d + 59) / 60)) min"; fi
+  elif [ "$d" -ge 172800 ]; then echo "$c · in $((d / 86400)) days"
+  elif [ "$d" -ge 3600 ]; then echo "$c · in $((d / 3600)) h $((d % 3600 / 60)) min"
+  else echo "$c · in $(((d + 59) / 60)) min"; fi
 }
-est_row() { printf '  %-25s %s%-24s%s %s\n' "$1" "$3" "$2" "$N" "$4" >&2; }
+est_row() { printf '  %-25s %s%-30s%s %s\n' "$1" "$3" "$2" "$N" "$4" >&2; }
+dur_of() {  # $1 seconds: "1 h 12 min", "14 min"
+  if [ "$1" -lt 3600 ]; then echo "$((($1 + 30) / 60)) min"
+  elif [ $(($1 % 3600 / 60)) = 0 ]; then echo "$(($1 / 3600)) h"
+  else echo "$(($1 / 3600)) h $(($1 % 3600 / 60)) min"; fi
+}
+hours_of() {  # $1 seconds, rounded down to the half hour: "5:30:00"
+  local h=$(($1 / 1800 * 1800))
+  printf '%02d:%02d:00' $((h / 3600)) $((h % 3600 / 60))
+}
+
+maint_lines() { rsh_stdin "bash -s" <"$ROOT/share/maint.sh" 2>/dev/null || true; }  # never fatal
+
+# The model jobs of the last $1 days (share/history.sh): the fiches of every dsh-romeo model.
+history_lines() {
+  local f all
+  all=$(printf '%s\n' $FICHES "$FICHE_DEEPSEEK" "$FICHE_KIMI" "$FICHE_VOICE" | awk '!seen[$0]++' | tr '\n' ' ')
+  # shellcheck disable=SC2086  # the fiches, one argument each
+  rsh_stdin "bash -s -- $1 $all" <"$ROOT/share/history.sh"
+}
+
+# Loading time of fiche $1 in LOAD (seconds): the median of its last 10 starts in history_lines
+# (stdin), else measured on ROMEO (2026-11-07). LOAD_N: the starts it comes from (0: the default).
+load_of() {
+  local s
+  s=$(awk -v f="$1" '$1 == "job" && $3 == f && $5 != "-" && $8 != "-" && $8 >= $5 { print $8 - $5 }' | tail -10 | sort -n)
+  LOAD_N=$(printf '%s' "$s" | grep -c . || true)
+  if [ "$LOAD_N" -gt 0 ]; then LOAD=$(printf '%s\n' "$s" | awk '{ a[NR] = $1 } END { print a[int((NR + 1) / 2)] }')
+  else case $(label_of "$1") in Kimi*) LOAD=840 ;; Whisper*) LOAD=120 ;; *) LOAD=480 ;; esac; fi
+}
+
+# A ROMEO stop that a job of $1 seconds launched now would reach: "START END NAME COMMENT" of the
+# first one, from maint_lines on stdin; nothing when none.
+stop_in_the_way() {
+  local now
+  now=$(date +%s)
+  awk -v now="$now" -v t="$1" '$1 == "maint" && $3 > now && $2 < now + t { $1 = ""; sub(/^ /, ""); print; exit }'
+}
 
 # When everything would run if launched now: Slurm's own estimate (sbatch --test-only on the scripts
 # romeollmtool would submit, share/estimate.sh), nothing submitted. dsh needs every model running,
 # so the headline is when the last one starts: the whole-node jobs are estimated together (one job
 # with all their nodes), since each alone may fit in the free nodes while together they do not.
+# Then when dsh can use them (your measured loading times), shorter jobs if they start sooner, and
+# the coming ROMEO stops.
+# --watch: again every minute (DSH_ROMEO_ESTIMATE_SECONDS) until everything can start now, then a
+# notification. ESTIMATE_NOW: everything would start now, for --watch.
 cmd_estimate() {
+  case ${1:-} in
+    '') estimate_once; return ;;
+    --watch) ;;
+    *) die "--estimate takes --watch or nothing, not $1" "dsh-romeo --estimate --watch" ;;
+  esac
+  local every=${DSH_ROMEO_ESTIMATE_SECONDS:-60}
+  [[ $every =~ ^[1-9][0-9]*$ ]] || every=60
+  trap 'printf "\n" >&2; exit 0' INT
+  while :; do
+    [ ! -t 2 ] || printf '\033[H\033[2J' >&2
+    estimate_once
+    if [ "$ESTIMATE_NOW" = 1 ]; then
+      notify "everything can start now on ROMEO: dsh-romeo --launch"
+      say "${G}everything can start now${N}: dsh-romeo --launch"
+      return 0
+    fi
+    note "next check at $(date -r $(($(date +%s) + every)) +%H:%M:%S 2>/dev/null || date -d "+$every sec" +%H:%M:%S) · a notification when everything can start · Ctrl-C quits"
+    sleep "$every"
+  done
+}
+
+estimate_once() {
+  ESTIMATE_NOW=0
   connect
   [ -n "$ROMEO_PROJECT" ] || die "no project code (ROMEO_PROJECT in $CONFIG_DIR/config)" "$ROOT/install.sh --project r123456"
-  local f jobs todo='' rows='' out now held limit idle=0 busy=0 total=0 n st
-  local latest=0 alone_max=0 alone_min='' all='' problem='' loading='' count=0 whole=0
-  local kind a b c d e gpus color s
+  local f jobs todo='' rows='' out hist maint now held limit idle=0 busy=0 total=0 n st
+  local latest=0 alone_max=0 overall='' problem='' count=0 whole=0 load=0 slow='' slow_n=0 to_load=''
+  local kind a b c d e gpus color s t secs shorter='' best='' fitnow queue alone='' alt='' need=0 why=''
+  secs=$(( $(minutes_of "$DSH_ROMEO_TIME") * 60 ))
   for f in $FICHES; do  # jobs already there: their own state
     count=$((count + 1))
     jobs=$(jobs_of_fiche "$f") || die "squeue did not answer on ROMEO" "dsh-romeo --estimate   (again)"
-    [ "$(label_of "$f")" != Kimi-K3.1-Pro ] || grep -q ' RUNNING ' <<<"$jobs" || loading=Kimi
+    grep -q ' RUNNING ' <<<"$jobs" || to_load="$to_load $f"
     if [ -z "$jobs" ]; then todo="$todo $f"; continue; fi
     if grep -q ' RUNNING ' <<<"$jobs"; then
       rows="$rows$(label_of "$f")|running|$G|$(summary "$jobs")"$'\n'
@@ -1343,6 +1508,8 @@ cmd_estimate() {
     fi
   done
   out=$(rsh_stdin "bash -s -- $(printf '%q ' "$ROMEOLLMTOOL" "$ROMEO_PROJECT" "$DSH_ROMEO_TIME") $todo" <"$ROOT/share/estimate.sh") || { lost $?; die "ROMEO did not answer" "dsh-romeo --doctor"; }
+  hist=$(history_lines 30 2>/dev/null || true)
+  maint=$(maint_lines)
   now=$(awk '$1 == "now" { print $2 }' <<<"$out"); now=${now:-$(date +%s)}
   held=$(awk '$1 == "held" { print $2 }' <<<"$out"); held=${held:-0}
   limit=$(awk '$1 == "limit" { print $2 }' <<<"$out")
@@ -1370,14 +1537,68 @@ cmd_estimate() {
         fi
         held=$((held + c))
         [ "$c" -lt $((4 * d)) ] || whole=$((whole + d))
-        [ "$b" -le "$alone_max" ] || alone_max=$b
-        [ -n "$alone_min" ] && [ "$b" -ge "$alone_min" ] || alone_min=$b
-        [ "$b" -le "$latest" ] || latest=$b ;;
-      all)
-        if [ "$f" = ok ]; then all=$a; [ "$a" -le "$latest" ] || latest=$a
-        else problem="${problem:-Slurm cannot estimate the jobs together: $a $b $c $d $e}"; fi ;;
+        alone="$alone$f $b"$'\n'
+        need=$((need + c))
+        [ "$b" -le "$alone_max" ] || alone_max=$b ;;
+      overall)
+        case $a in
+          err) [ "$f" != "$DSH_ROMEO_TIME" ] || problem="${problem:-Slurm cannot estimate the jobs together: $b $c $d $e}" ;;
+          *) if [ "$f" = "$DSH_ROMEO_TIME" ]; then overall=$a; [ "$a" -le "$latest" ] || latest=$a
+             elif [ -n "$overall" ] && [ "$a" -lt $((overall - 300)) ] && [ "$a" -lt $((latest - 300)) ]; then
+               t=${f%:00}; t=${t#0}; t=${t%:00}; shorter="$shorter${shorter:+ · }$t h: $(when_of "$a" "$now" | cut -d' ' -f1)"; best=${best:-$f}
+             fi ;;
+        esac ;;
     esac
   done <<<"$out"
+  # Why it waits, in words: the project's GPU limit shared by its members, the free nodes, the
+  # other projects' jobs that go first (fair-share). Slurm's own estimate may not count the
+  # project's limit: the time the project's running jobs free enough GPUs counts too.
+  local plimit pjobs others mine names free_at fs
+  plimit=$(awk '$1 == "plimit" { print $2 }' <<<"$out")
+  pjobs=$(awk '$1 == "pjob" { $1 = ""; sub(/^ /, ""); print }' <<<"$out")
+  others=$(awk '$1 != "-" && $2 == "RUNNING" { s += $3 } END { print s + 0 }' <<<"$pjobs")
+  mine=$(awk '$1 == "-" { s += $3 } END { print s + 0 }' <<<"$pjobs")
+  if [ -n "$plimit" ] && [ "$need" -gt 0 ] && [ $((others + mine + need)) -gt "$plimit" ]; then
+    names=$(awk '$1 != "-" && $2 == "RUNNING" { g[$1] += $3 } END { for (u in g) printf "%s%s %d", (n++ ? ", " : ""), u, g[u] }' <<<"$pjobs")
+    # Their running jobs by end time: when enough GPUs come back under the limit.
+    free_at=$(awk '$1 != "-" && $2 == "RUNNING" { print $4, $3 }' <<<"$pjobs" | while read -r e g; do printf '%s %s\n' "$(iso_epoch "$e" || echo 0)" "$g"; done |
+      sort -n | awk -v over=$((others + mine + need - plimit)) '{ freed += $2; if (freed >= over) { print $1; exit } }')
+    s="project $ROMEO_PROJECT has $plimit GPUs for all its members: ${names:-others} now, $((plimit - others - mine < 0 ? 0 : plimit - others - mine)) left$([ "$mine" = 0 ] || echo " after yours ($mine)"), these models need $need"
+    if [ -n "$free_at" ] && [ "$free_at" -gt 0 ]; then
+      s="$s; enough is free when their jobs end, ~$(clock_of "$free_at")"
+      [ "$free_at" -le "$latest" ] || latest=$free_at
+    fi
+    why="$why$s"$'\n'
+  fi
+  if [ "$latest" -gt $((now + 120)) ]; then
+    if [ "$whole" -gt "$idle" ]; then
+      why="${why}not enough free GPU nodes: these models need $whole together, $idle are free, the others are busy"$'\n'
+      [ $((total - idle - busy)) -le $((total / 3)) ] || why="${why}$((total - idle - busy)) of ROMEO's $total GPU nodes are down or drained (repairs, maintenance)"$'\n'
+      [ -z "$overall" ] || [ "$overall" -le $((alone_max + 300)) ] || why="${why}each model alone would start sooner: they must all run at once for dsh"$'\n'
+    fi
+    fs=$(awk '$1 == "fairshare" { print $2 }' <<<"$out")
+    read -r a b <<<"$(awk '$1 == "ahead" { print $2, $3 }' <<<"$out")"
+    if [ "${a:-0}" -gt 0 ]; then
+      why="$why${a} GPU jobs of other projects ($b GPUs) wait with a higher priority$([ -z "$fs" ] || awk -v f="$fs" 'BEGIN { if (f < 0.5) printf ": your project used ROMEO a lot lately (fair-share %.2f of 1)", f }')"$'\n'
+    fi
+  fi
+  fitnow=$(awk '$1 == "fitnow" { print $2 }' <<<"$out")
+  queue=$(awk '$1 == "queue" { print $2, $3 }' <<<"$out")
+  # Waiting for all of them: another choice of models that starts now (the agent's model alone,
+  # or DeepSeek alone; voice off).
+  if [ -z "$problem" ] && [ "$count" -gt 1 ] && [ "$latest" -gt $((now + 300)) ]; then
+    for f in $FICHE $SUB_FICHE; do
+      s=$(awk -v f="$f" '$1 == f { print $2 }' <<<"$alone")
+      [ -n "$s" ] && [ "$s" -le $((now + 120)) ] || continue
+      case $f in "$FICHE_KIMI") t=kimi ;; "$FICHE_DEEPSEEK") t=deepseek ;; *) continue ;; esac
+      alt="$(label_of "$f") alone starts now: dsh-romeo --models $t$([ -z "$VOICE_FICHE" ] || echo ' --voice off') --launch"
+      break
+    done
+  fi
+  for f in $to_load; do  # the slowest model to load sets when dsh can use them all
+    load_of "$f" <<<"$hist"
+    [ "$LOAD" -le "$load" ] || { load=$LOAD; slow=$(label_of "$f"); slow_n=$LOAD_N; }
+  done
 
   say "estimate ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE · $DSH_ROMEO_TIME · project $ROMEO_PROJECT${N}"
   printf '\n' >&2
@@ -1387,21 +1608,206 @@ cmd_estimate() {
   else
     color=$G; [ "$(when_of "$latest" "$now")" = now ] || color=$Y
     printf '  %s%-25s%s %s%s%s\n' "$B" "$head" "$N" "$B$color" "$(when_of "$latest" "$now")" "$N" >&2
-    if [ -n "$all" ] && [ "$all" -gt $((alone_max + 60)) ]; then
-      if [ "$(when_of "$alone_max" "$now")" = now ]; then s="each model alone could start now"; else s="alone, each could start by ~$(clock_of "$alone_max")"; fi
-      printf '  %-25s %s\n' "" "${D}$s, but together they need $whole whole GPU nodes and $idle are free${N}" >&2
+    if [ -n "$why" ]; then
+      local first=1
+      while read -r s; do
+        [ -n "$s" ] || continue
+        printf '  %-25s %s\n' "$([ "$first" = 1 ] && echo "why it waits")" "${Y}·${N} $s" >&2
+        first=0
+      done <<<"$why"
     fi
-    if [ -n "$loading" ]; then printf '  %-25s %s\n' "" "${D}then about 12 min for Kimi to load before dsh can use it${N}" >&2
-    elif [ -n "$todo" ]; then printf '  %-25s %s\n' "" "${D}then the model$([ "$count" = 1 ] || echo s) load$([ "$count" != 1 ] || echo s) before dsh can use $([ "$count" = 1 ] && echo it || echo them)${N}" >&2; fi
+    if [ "$load" -gt 0 ]; then
+      if [ "$slow_n" -gt 0 ]; then s="your last $slow_n start$([ "$slow_n" = 1 ] || echo s)"; else s="measured on ROMEO"; fi
+      printf '  %s%-25s%s %s %s\n' "$B" "ready in dsh" "$N" "$(when_of $((latest + load)) "$now")" "${D}($slow loads in ~$(dur_of "$load"), $s)${N}" >&2
+    fi
+    if [ -n "$fitnow" ]; then
+      printf '  %-25s %s %s\n' "a shorter job starts now" "up to $(dur_of $(($(minutes_of "$fitnow") * 60)))" "${D}DSH_ROMEO_TIME=$fitnow dsh-romeo --launch${N}" >&2
+    elif [ -n "$shorter" ]; then
+      printf '  %-25s %s %s\n' "shorter jobs start sooner" "$shorter" "${D}DSH_ROMEO_TIME=$best dsh-romeo --launch${N}" >&2
+    fi
+    [ -z "$alt" ] || printf '  %-25s %s\n' "other models" "${alt%%:*}: ${D}${alt#*: }${N}" >&2
   fi
-  printf '\n  %s%-25s %-24s %s%s\n' "$D" MODEL "$([ "$count" -gt 1 ] && echo 'EACH ALONE' || echo START)" GPUS "$N" >&2
+  # A coming ROMEO stop: shown within 14 days, with what it means for a job of this length.
+  while read -r kind a b c d; do
+    [ "$kind" = maint ] && [ "$a" -lt $((now + 14 * 86400)) ] || continue
+    s="$(clock_of "$a") → $(clock_of "$b")${d:+ ($d)}"
+    if [ "$a" -le "$now" ]; then printf '  %s%-25s%s %s\n' "$R" "ROMEO stopped" "$N" "$s: jobs start after it" >&2
+    elif [ $((latest + secs)) -le "$a" ]; then printf '  %-25s %s %s\n' "ROMEO stop" "$s" "${D}a job of $(dur_of "$secs") launched now ends before it${N}" >&2
+    else
+      printf '  %s%-25s%s %s\n' "$Y" "ROMEO stop" "$N" "$s" >&2
+      t=$((a - now - 600))
+      if [ "$t" -ge 3600 ]; then printf '  %-25s %s\n' "" "${D}a job of $(dur_of "$secs") cannot end before it, so Slurm holds it until after; $(dur_of $((t / 1800 * 1800))) fits: DSH_ROMEO_TIME=$(hours_of "$t") dsh-romeo --launch${N}" >&2
+      else printf '  %-25s %s\n' "" "${D}a job of $(dur_of "$secs") cannot end before it, so Slurm holds it until after${N}" >&2; fi
+    fi
+  done <<<"$maint"
+  printf '\n  %s%-25s %-30s %s%s\n' "$D" MODEL "$([ "$count" -gt 1 ] && echo 'EACH ALONE' || echo START)" GPUS "$N" >&2
   while IFS='|' read -r a b c d; do [ -z "$a" ] || est_row "$a" "$b" "$c" "$d"; done <<<"$rows"
   printf '\n' >&2
-  est_row ROMEO "$idle of $total GPU nodes free" "$([ "$idle" -gt 0 ] && echo "$G" || echo "$Y")" "${D}$busy busy, $((total - idle - busy)) down or drained${N}"
+  est_row ROMEO "$idle of $total GPU nodes free" "$([ "$idle" -gt 0 ] && echo "$G" || echo "$Y")" "${D}$busy busy, $((total - idle - busy)) down or drained$(read -r a b <<<"$queue"; [ "${a:-0}" = 0 ] || echo "; $a GPU jobs waiting for $b GPUs")${N}"
   [ -z "$limit" ] || est_row "your GPUs" "$(awk '$1 == "held" { print $2 }' <<<"$out") of $limit in use" "$D" ""
   printf '\n' >&2
   note "Slurm's estimate: jobs ending early bring it forward, higher-priority jobs push it back"
-  if [ -n "$todo" ]; then note "dsh-romeo --launch   start them"; fi
+  if [ -n "$todo" ]; then note "dsh-romeo --launch   start them$([ "$latest" -le $((now + 120)) ] || echo " · dsh-romeo --estimate --watch   a notification when they can start now")"; fi
+  [ -n "$problem" ] || [ "$latest" -gt $((now + 120)) ] || ESTIMATE_NOW=1
+}
+
+# The model jobs of the last $1 days (14): waited, loaded, ran, how each ended, GPU hours; then
+# the typical wait and loading time of each model, which --estimate uses too.
+cmd_history() {
+  local days=${1:-14} hist now id f sub st en state ready gpus note waited loaded ran ended gh total=0 f2 l
+  [[ $days =~ ^[0-9]+$ ]] && [ "$days" -ge 1 ] && [ "$days" -le 365 ] || die "--history takes a number of days (1-365), not '$days'" "dsh-romeo --history 30"
+  connect
+  hist=$(history_lines "$days") || { lost $?; die "ROMEO did not answer" "dsh-romeo --doctor"; }
+  now=$(date +%s)
+  say "history ${D}last $days days · project ${ROMEO_PROJECT:-?}${N}"
+  if ! grep -q '^job ' <<<"$hist"; then note "no model job in the last $days days"; return 0; fi
+  printf '\n  %s%-8s %-25s %-12s %-8s %-8s %-10s %-7s %s%s\n' "$D" JOB MODEL SUBMITTED WAITED LOADED RAN GPU-H ENDED "$N" >&2
+  while read -r _ id f sub st en state ready gpus note; do
+    [ -n "$id" ] || continue
+    waited=- loaded=- ran=- gh=0
+    if [ "$st" != - ]; then
+      waited=$(dur_of $((st - sub)))
+      [ "$ready" = - ] || loaded=$(dur_of $((ready - st)))
+      [ "$en" != - ] || en=$now
+      ran=$(dur_of $((en - st)))
+      gh=$(( gpus * (en - st) ))
+    fi
+    total=$((total + gh))
+    case $state in
+      RUNNING) ended="${G}running${N}" ;;
+      PENDING) ended="${Y}queued${N}"; waited="$(dur_of $((now - sub)))+" ;;
+      CANCELLED) ended="stopped" ;;
+      TIMEOUT) ended="time limit" ;;
+      COMPLETED) ended="ended" ;;
+      FAILED) if [ "$ready" = - ]; then ended="${R}failed while loading${N}"; else ended="${R}failed${N}"; fi ;;
+      NODE_FAIL) ended="${R}node failed${N}" ;;
+      OUT_OF_ME*) ended="${R}out of memory${N}" ;;
+      *) ended=$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]') ;;
+    esac
+    [ "$state" != CANCELLED ] || [ "$ready" != - ] || [ "$st" = - ] || ended="stopped while loading"
+    [ "$state" != CANCELLED ] || [ "$st" != - ] || ended="stopped in the queue"
+    case ${note:--} in idle:*) ended="stopped after ${note#idle:} min idle" ;; relayed) ended="$ended, relayed" ;; esac
+    printf '  %-8s %-25s %-12s %-8s %-8s %-10s %-7s %s\n' "$id" "$(label_of "$f")" "$(clock_of "$sub")" "$waited" "$loaded" "$ran" \
+      "$(awk -v s="$gh" 'BEGIN { printf "%.1f", s / 3600 }')" "$ended" >&2
+  done <<<"$hist"
+  printf '\n' >&2
+  for f2 in $(awk '$1 == "job" { print $3 }' <<<"$hist" | awk '!seen[$0]++'); do
+    load_of "$f2" <<<"$hist"
+    l=$(awk -v f="$f2" '$1 == "job" && $3 == f && $5 != "-" { print $5 - $4 }' <<<"$hist" | sort -n | awk '{ a[NR] = $1 } END { if (NR) print a[int((NR + 1) / 2)] }')
+    est_row "$(label_of "$f2")" "waits $(dur_of "${l:-0}")" "" "${D}loads in ~$(dur_of "$LOAD")$([ "$LOAD_N" -gt 0 ] && echo " ($LOAD_N starts)" || echo " (measured on ROMEO)"), medians${N}"
+  done
+  est_row "GPU hours" "$(awk -v s="$total" 'BEGIN { printf "%.0f", s / 3600 }')" "" "${D}these jobs, last $days days${N}"
+}
+
+# GPU hours: yours and the project's this month (Slurm's accounting, sreport), the limit if Slurm
+# has one, what your running jobs cost so far and to their end, and dsh-romeo's jobs over 30 days.
+cmd_usage() {
+  connect
+  [ -n "$ROMEO_PROJECT" ] || die "no project code (ROMEO_PROJECT in $CONFIG_DIR/config)" "$ROOT/install.sh --project r123456"
+  local month out me proj members cap hist f gh line nodes gres el left g now_gh=0 end_gh=0 gpus=0 jobs=0
+  month=$(date +%Y-%m-01)
+  out=$(rsh "echo \$USER; sreport -nP cluster AccountUtilizationByUser accounts=$(printf %q "$ROMEO_PROJECT") start=$month -T gres/gpu -t hours 2>/dev/null
+    echo '--'; sacctmgr -nP show assoc account=$(printf %q "$ROMEO_PROJECT") user= format=GrpTRESMins 2>/dev/null
+    echo '--'; squeue -u \$USER -h -t R -o '%j|%D|%b|%M|%L'") || { lost $?; die "ROMEO did not answer" "dsh-romeo --doctor"; }
+  proj=$(awk -F'|' '/^--$/ { exit } $3 == "" && $5 == "gres/gpu" { print $6 }' <<<"$out")
+  me=$(awk -F'|' 'NR == 1 { u = $0; next } /^--$/ { exit } $3 == u { print $6 }' <<<"$out")
+  members=$(awk -F'|' '/^--$/ { exit } $3 != "" && $6 > 0' <<<"$out" | grep -c . || true)
+  cap=$(awk '/^--$/ { n++; next } n == 1' <<<"$out" | grep -oE 'gres/gpu=[0-9]+' | cut -d= -f2 || true)
+  while IFS='|' read -r _ nodes gres el left; do
+    [ -n "$left" ] || continue
+    g=${gres##*:}; [[ $g =~ ^[0-9]+$ ]] || g=0
+    g=$((nodes * g)); gpus=$((gpus + g)); jobs=$((jobs + 1))
+    now_gh=$((now_gh + g * $(minutes_of "$el"))); end_gh=$((end_gh + g * ($(minutes_of "$el") + $(minutes_of "$left"))))
+  done < <(awk '/^--$/ { n++; next } n == 2' <<<"$out")
+  say "usage ${D}project $ROMEO_PROJECT · $(date +%B) (since ${month#*-})${N}"
+  printf '\n' >&2
+  est_row "you" "${me:-0} GPU-h" "$B" "${D}$([ "${proj:-0}" -gt 0 ] && echo "$((100 * ${me:-0} / proj)) % of the project")${N}"
+  est_row "project $ROMEO_PROJECT" "${proj:-0} GPU-h" "" "${D}$members member$([ "$members" = 1 ] || echo s) used GPUs this month${N}"
+  if [ -n "$cap" ]; then est_row "limit" "$((cap / 60)) GPU-h" "$Y" "${D}$(( ${proj:-0} * 100 / (cap / 60) )) % used${N}"
+  else est_row "limit" "none in Slurm" "" "${D}ROMEO may count hours apart from it: ask its support for your allocation${N}"; fi
+  if [ "$jobs" -gt 0 ]; then
+    est_row "running now" "$gpus GPU$([ "$gpus" = 1 ] || echo s)" "$G" "$((now_gh / 60)) GPU-h so far, $((end_gh / 60)) GPU-h if they run to the end ${D}(dsh-romeo --stop)${N}"
+  else est_row "running now" "nothing" "" ""; fi
+  hist=$(history_lines 30 2>/dev/null || true)
+  line=''
+  for f in $(awk '$1 == "job" { print $3 }' <<<"$hist" | awk '!seen[$0]++'); do
+    gh=$(awk -v f="$f" -v now="$(date +%s)" '$1 == "job" && $3 == f && $5 != "-" { e = ($6 == "-") ? now : $6; s += $9 * (e - $5) } END { printf "%.0f", s / 3600 }' <<<"$hist")
+    line="$line${line:+, }$(label_of "$f" | cut -d- -f1) $gh"
+  done
+  [ -z "$line" ] || est_row "dsh-romeo, 30 days" "$(awk -v now="$(date +%s)" '$1 == "job" && $5 != "-" { e = ($6 == "-") ? now : $6; s += $9 * (e - $5) } END { printf "%.0f", s / 3600 }' <<<"$hist") GPU-h" "" "${D}$line${N}"
+  printf '\n' >&2
+  note "Slurm's accounting is updated about every hour"
+}
+
+# Old job logs on ROMEO (older than 30 days, DSH_ROMEO_CLEAN_DAYS: --history and --estimate read
+# the loading times in them), never a queued job's; the ROMEO home's use; a dead connection's socket
+# here. Lists, asks, deletes; $1 --yes deletes without asking.
+cmd_clean() {
+  local days=${DSH_ROMEO_CLEAN_DAYS:-30} out n kb home answer
+  [[ $days =~ ^[0-9]+$ ]] && [ "$days" -ge 1 ] || die "DSH_ROMEO_CLEAN_DAYS: a number of days, not '$days'" "DSH_ROMEO_CLEAN_DAYS=30 dsh-romeo --clean"
+  case ${1:-} in --yes | '') ;; *) die "--clean takes --yes or nothing, not $1" "dsh-romeo --clean" ;; esac
+  if [ -S "$CTL" ] && ! mux check; then rm -f "$CTL" "$CTL.target" "$CTL.voice"; say "a dead connection's socket removed ${D}($CTL)${N}"; fi
+  connect
+  out=$(rsh_stdin "bash -s -- $days list" <"$ROOT/share/clean.sh") || { lost $?; die "ROMEO did not answer" "dsh-romeo --doctor"; }
+  read -r _ n kb <<<"$(grep '^logs ' <<<"$out")"
+  home=$(grep '^home ' <<<"$out" | cut -d' ' -f2- || true)
+  say "clean ${D}ROMEO home${home:+: $(awk '{ print $1 " " $2 " of " $3 " " $4 ($5 ? " (" $5 ")" : "") }' <<<"$home")}${N}"
+  if [ "${n:-0}" = 0 ]; then note "no job log older than $days days in ~/.romeollmtool/logs"; return 0; fi
+  note "$n job logs older than $days days in ~/.romeollmtool/logs, $(awk -v k="$kb" 'BEGIN { if (k >= 1048576) printf "%.1f GB", k / 1048576; else printf "%.0f MB", k / 1024 }')"
+  if [ "${1:-}" != --yes ]; then
+    [ -t 0 ] && [ -t 2 ] || { note "dsh-romeo --clean --yes   deletes them"; return 0; }
+    printf '%s' "${B}dsh-romeo${N} delete them? [y/N] " >&2
+    read -r answer || answer=n
+    case $answer in y | Y | yes | o | O | oui) ;; *) say "nothing deleted"; return 0 ;; esac
+  fi
+  out=$(rsh_stdin "bash -s -- $days delete" <"$ROOT/share/clean.sh") || { lost $?; die "ROMEO did not answer: some logs may be left" "dsh-romeo --clean"; }
+  read -r _ n kb <<<"$(grep '^logs ' <<<"$out")"
+  say "${G}$n job logs deleted${N} ${D}($(awk -v k="$kb" 'BEGIN { if (k >= 1048576) printf "%.1f GB", k / 1048576; else printf "%.0f MB", k / 1024 }') freed)${N}"
+}
+
+# Live view of the running model jobs (share/top.sh, every DSH_ROMEO_TOP_SECONDS, 2): requests
+# being generated (one per agent at work), requests waiting, output tokens/s, KV cache use, time
+# left; the last request and the idle stop. Ctrl-C quits. Not in a terminal: one snapshot.
+cmd_top() {
+  connect
+  local every=${DSH_ROMEO_TOP_SECONDS:-2} out prev='' pnow=0 now last id f left run wait kv gen tps total_run=0 total_tps=0 k pg c tty=0
+  [[ $every =~ ^[1-9][0-9]*$ ]] || every=2
+  [ -t 2 ] && tty=1
+  # shellcheck disable=SC2064  # the cursor comes back however it ends
+  [ "$tty" = 0 ] || { printf '\033[?25l' >&2; trap "printf '\033[?25h\n' >&2; exit 0" INT TERM; }
+  while :; do
+    # shellcheck disable=SC2086  # the fiches, one argument each
+    out=$(rsh_stdin "bash -s -- $(printf %q "$ROMEOLLMTOOL") $FICHES" <"$ROOT/share/top.sh") || { lost $?; die "ROMEO did not answer" "dsh-romeo --doctor"; }
+    now=$(awk '$1 == "now" { print $2 }' <<<"$out"); last=$(awk '$1 == "last" { print $2 }' <<<"$out")
+    render() {
+      [ "$tty" = 0 ] || printf '\033[H\033[2J' >&2
+      say "top ${D}$(date +%H:%M:%S) · every $every s$([ "$tty" = 0 ] || echo ' · Ctrl-C quits')${N}"
+      printf '\n  %s%-25s %-8s %-7s %-8s %-8s %-9s %s%s\n' "$D" MODEL JOB AGENTS WAITING "TOK/S" "KV CACHE" LEFT "$N" >&2
+      total_run=0 total_tps=0
+      if ! grep -q '^job ' <<<"$out"; then printf '  %s\n' "${D}no model job running: dsh-romeo --status${N}" >&2; fi
+      while read -r k id f left run wait kv gen _; do
+        [ "$k" = job ] || continue
+        if [ "$run" = - ]; then
+          printf '  %-25s %-8s %s%s%s\n' "$(label_of "$f")" "$id" "$Y" "loading (no metrics yet)" "$N" >&2; continue
+        fi
+        tps=-
+        pg=$(awk -v i="$id" '$2 == i { print $8 }' <<<"$prev")
+        if [ -n "$pg" ] && [ "$now" -gt "$pnow" ]; then tps=$(((gen - pg) / (now - pnow))); [ "$tps" -ge 0 ] || tps=0; total_tps=$((total_tps + tps)); fi
+        total_run=$((total_run + run))
+        c=$G; [ "$wait" = 0 ] || c=$Y
+        printf '  %-25s %-8s %-7s %s%-8s%s %-8s %-9s %s\n' "$(label_of "$f")" "$id" "$run" "$c" "$wait" "$N" "$tps" \
+          "$(awk -v k="$kv" 'BEGIN { printf "%.0f %%", k * 100 }')" "$(dur_of $(($(minutes_of "$left") * 60)))" >&2
+      done <<<"$out"
+      printf '\n  %-34s %-7s %-8s %s\n' total "$total_run" "" "$([ -n "$prev" ] && echo "$total_tps" || echo -)" >&2
+      if [ -n "$last" ]; then
+        note "last request $(dur_of $((now - last))) ago$([ "$DSH_ROMEO_IDLE_STOP" = off ] || echo " · the jobs stop after $DSH_ROMEO_IDLE_STOP min without one")"
+      fi
+    }
+    if [ "$tty" = 1 ] || [ -n "$prev" ]; then render; else render 2>/dev/null; fi  # not in a terminal: the second round only, with tokens/s
+    [ "$tty" = 1 ] || [ -z "$prev" ] || break
+    prev=$out pnow=$now
+    sleep "$every"
+  done
 }
 
 cmd_stop() {  # the jobs of every dsh-romeo model, also those of a choice of models made earlier
@@ -1426,6 +1832,7 @@ cmd_stop() {  # the jobs of every dsh-romeo model, also those of a choice of mod
   if [ "$DSH_ROMEO_GATEWAY" = fast ]; then
     rsh "pkill -u \$USER -f '$FAST_PATTERN'" && say "fast gateway stopped"
   fi
+  rsh "[ ! -d ~/.dsh-romeo ] || echo stopped > ~/.dsh-romeo/watch.gen" 2>/dev/null || true  # the watcher ends
   disconnect
   stop_voice_watch
   rm -f "$CTL.target" "$CTL.voice" "$VOICE_KEY_FILE" "$CONFIG_DIR/desktop.key-sum"
@@ -1540,6 +1947,8 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
   note "local    http://127.0.0.1:$PORT/v1  (the tunnel to it, what dsh uses)"
   [ -z "$SUB_MODEL" ] || say "$SUB_LABEL ${G}ready${N} for the subagents ${D}($SUB_MODEL)${N}"
   time_left_warning
+  start_watch
+  write_status
   if [ -n "$VOICE_MODEL" ]; then open_voice_tunnel; else voice_off; fi
   ensure_web
   [ -z "$WEB_READY" ] || say "web search ${G}ready${N} ${D}(RustXNG on the ROMEO login node, over this SSH connection)${N}"
@@ -1549,6 +1958,46 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
     say "${Y}your $over sets dsh's web search itself${N}: it wins over dsh-romeo's"
     note "remove its '- id: web' row (and the search plugin it inserts) to use dsh-romeo's"
   fi
+}
+
+# The watcher on the ROMEO login node (share/watch.sh): stops the jobs after DSH_ROMEO_IDLE_STOP
+# minutes without requests, and starts the next job of a model DSH_ROMEO_RELAY_BEFORE minutes before
+# one ends while it is in use (DSH_ROMEO_RELAY). One per user: a new one replaces the last, on any
+# login node (its generation in ~/.dsh-romeo/watch.gen). Never fatal: dsh starts without it.
+start_watch() {
+  local gen out
+  case $DSH_ROMEO_IDLE_STOP in off | [1-9] | [1-9][0-9] | [1-9][0-9][0-9] | [1-9][0-9][0-9][0-9]) ;;
+    *) say "${Y}DSH_ROMEO_IDLE_STOP: minutes or off, not '$DSH_ROMEO_IDLE_STOP'${N}: no idle stop"; DSH_ROMEO_IDLE_STOP=off ;; esac
+  [[ $DSH_ROMEO_RELAY_BEFORE =~ ^[1-9][0-9]*$ ]] || DSH_ROMEO_RELAY_BEFORE=40
+  if [ "$DSH_ROMEO_IDLE_STOP" = off ] && [ "$DSH_ROMEO_RELAY" != on ]; then
+    rsh "mkdir -p ~/.dsh-romeo && echo off > ~/.dsh-romeo/watch.gen" 2>/dev/null || true
+    return 0
+  fi
+  gen="$(date +%s)-$$"
+  # shellcheck disable=SC2086  # the fiches, one argument each
+  if out=$(rsh_stdin "mkdir -p ~/.dsh-romeo && cat > ~/.dsh-romeo/watch.sh" <"$ROOT/share/watch.sh" 2>&1) \
+    && out=$(rsh "nohup setsid bash ~/.dsh-romeo/watch.sh $(printf '%q ' "$ROMEOLLMTOOL" "$ROMEO_PROJECT" "$DSH_ROMEO_TIME" "$DSH_ROMEO_IDLE_STOP" "$DSH_ROMEO_RELAY" "$DSH_ROMEO_RELAY_BEFORE" "$gen") $FICHES >/dev/null 2>&1 </dev/null & echo started" 2>&1); then
+    local what=''
+    [ "$DSH_ROMEO_IDLE_STOP" = off ] || what="stops the jobs after $DSH_ROMEO_IDLE_STOP min without requests"
+    [ "$DSH_ROMEO_RELAY" != on ] || what="$what${what:+; }starts the next job $DSH_ROMEO_RELAY_BEFORE min before one ends, while in use"
+    note "watcher on ROMEO: $what"
+  else
+    say "${Y}no watcher on ROMEO${N} ${D}($(printf '%s\n' "$out" | tail -1)): no idle stop, no relay${N}"
+  fi
+}
+
+# What the dsh-romeo-status plugin reads (its badge in dsh): the SSH connection to ask ROMEO
+# through, the models with their loading times (your last starts), the idle stop and the relay.
+write_status() {
+  local hist f models='' tmp
+  hist=$(history_lines 30 2>/dev/null || true)
+  for f in $FICHES; do
+    load_of "$f" <<<"$hist"
+    models="$models${models:+,}{\"fiche\":\"$f\",\"label\":\"$(label_of "$f")\",\"short\":\"$(label_of "$f" | cut -d- -f1)\",\"load\":$LOAD}"
+  done
+  tmp=$(umask 077; mktemp "$CONFIG_DIR/status.json.XXXXXX") || return 0
+  printf '{"host":"%s","socket":"%s","models":[%s],"idle":"%s","relay":"%s","before":%s,"started":%s}\n' \
+    "$HOST" "$CTL" "$models" "$DSH_ROMEO_IDLE_STOP" "$DSH_ROMEO_RELAY" "$DSH_ROMEO_RELAY_BEFORE" "$(date +%s)" >"$tmp" && mv "$tmp" "$CONFIG_DIR/status.json"
 }
 
 # Voice input goes straight to the Whisper job: romeollmtool's gateway cannot relay audio uploads
@@ -1731,7 +2180,7 @@ main() {
         launch=1
         if [[ "${1:-}" =~ ^[0-9]+$ ]]; then launch=$1; shift; fi
         [ "$launch" -ge 1 ] && [ "$launch" -le 8 ] || die "--launch takes 1 to 8 jobs, not $launch" "dsh-romeo --launch 2" ;;
-      --serve | --env | --desktop)
+      --serve | --env | --desktop | --switch)
         [ -z "$cmd" ] || [ "$cmd" = "$1" ] || die "$cmd and $1 do not combine" "dsh-romeo $1"
         cmd=$1
         shift ;;
@@ -1748,6 +2197,7 @@ main() {
       --serve) print_serve >&3 ;;
       --env) print_env >&3 ;;
       --desktop) run_desktop ;;
+      --switch) cmd_switch ;;
     esac
     return
   fi
@@ -1761,15 +2211,23 @@ main() {
     --completion) cmd_completion "${2:-}"; exit 0 ;;
     --doctor)
       [ "$launch" -eq 0 ] || die "--launch and --doctor do not combine" "dsh-romeo --doctor"
-      cmd_doctor
+      cmd_doctor "${2:-}"
+      exit 0 ;;
+    --clean)
+      [ "$launch" -eq 0 ] || die "--launch and --clean do not combine" "dsh-romeo --clean"
+      cmd_clean "${2:-}"
+      exit 0 ;;
+    --history)
+      [ "$launch" -eq 0 ] || die "--launch and --history do not combine" "dsh-romeo --history"
+      cmd_history "${2:-}"
       exit 0 ;;
     --logs)
       [ "$launch" -eq 0 ] || die "--launch and --logs do not combine" "dsh-romeo --logs"
       cmd_logs "${2:-}"
       exit 0 ;;
-    --status | --estimate | --eta | --stop | --setup)
+    --status | --estimate | --eta | --usage | --top | --stop | --setup)
       [ "$launch" -eq 0 ] || die "--launch and $1 do not combine" "dsh-romeo $1"
-      case $1 in --status) cmd_status ;; --estimate | --eta) cmd_estimate ;; --stop) cmd_stop ;; --setup) cmd_setup ;; esac
+      case $1 in --status) cmd_status ;; --estimate | --eta) cmd_estimate "${2:-}" ;; --usage) cmd_usage ;; --top) cmd_top ;; --stop) cmd_stop ;; --setup) cmd_setup ;; esac
       exit 0 ;;
     --run)
       shift

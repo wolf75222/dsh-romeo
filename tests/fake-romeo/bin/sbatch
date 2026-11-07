@@ -8,6 +8,9 @@ case $script in '#!'*) ;; *) echo "sbatch: error: line must start with #! follow
 [ -z "${FAKE_SBATCH_ERROR:-}" ] || { echo "sbatch: error: $FAKE_SBATCH_ERROR" >&2; exit 1; }
 n=$(printf '%s\n' "$script" | sed -n 's/^#SBATCH --nodes=//p')
 wait=${FAKE_ETA:-0}; [ "$n" -le "${FAKE_IDLE:-9}" ] || wait=${FAKE_ETA_FULL:-7200}
+# FAKE_SHORT=1: a job of 4 h or less fits into a gap now.
+t=$(printf '%s\n' "$script" | sed -n 's/^#SBATCH --time=//p')
+[ "${FAKE_SHORT:-0}" != 1 ] || case $t in 0[0-4]:*) wait=0 ;; esac
 at=$(($(date +%s) + wait))
 iso=$(date -r "$at" +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -d "@$at" +%Y-%m-%dT%H:%M:%S)
 echo "sbatch: Job 999999 to start at $iso using $((n * 32)) processors on nodes romeo-a[001-00$n] in partition short" >&2

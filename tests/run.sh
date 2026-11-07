@@ -19,6 +19,8 @@ export ROMEO_SSH_HOST=romeo ROMEO_PROJECT=r000000
 # The fast gateway's start.sh must not find romeollmtool's real Python, even on a ROMEO login node.
 export ROMEOLLMTOOL_PYTHON=$T/no-such-python
 unset DSH_ROMEO_FICHE DSH_ROMEO_SEARXNG_URL DSH_ROMEO_EFFORT DSH_ROMEO_TIME
+# The watcher (share/watch.sh) is tested on its own below: the starts of the other tests run none.
+export DSH_ROMEO_IDLE_STOP=off DSH_ROMEO_RELAY=off DSH_ROMEO_WATCH_SECONDS=1 DSH_ROMEO_TOP_SECONDS=1
 mkdir -p "$FAKE_ROMEO_STATE" "$FAKE_ROMEO_HOME"
 
 python3 "$FAKE/gateway.py" "$PORT" &
@@ -52,17 +54,17 @@ check "status: no model job" has "DeepSeek-V4.1-Flash-1017  *-  *no job"
 # --estimate: when everything would run if launched now (sbatch --test-only on romeollmtool's dry run).
 run --estimate
 check "--estimate: one model, its start" has "model running  *now"
-check "--estimate: then it loads" has "then the model loads before dsh can use it"
+check "--estimate: then it loads" has "ready in dsh  *~[0-9:]* · in 8 min (DeepSeek-V4.1-Flash-1017 loads in ~8 min, measured on ROMEO)"
 check "--estimate: the model's row" has "DeepSeek-V4.1-Flash-1017  *now  *8 GPUs on 2 nodes"
 check "--estimate: free GPU nodes" has "ROMEO  *9 of 15 GPU nodes free  *4 busy, 2 down or drained"
 check "--estimate: your GPUs" has "your GPUs  *0 of 60 in use"
 check "--estimate: nothing submitted" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs' 2>/dev/null"
 FAKE_ETA=4000 run --estimate
-check "--estimate: a later start, with the wait" has "model running  *~[0-9: -]* · in 1 h 6 min"
+check "--estimate: a later start, with the wait" has "model running  .*~[0-9:]* · in 1 h 6 min"
 DSH_ROMEO_MODELS=kimi+deepseek DSH_ROMEO_VOICE=on run --estimate
-check "--estimate: all together, the latest start" has "all 3 models running  *~[0-9: -]* · in 2 h 0 min"
-check "--estimate: why, in words" has "each model alone could start now, but together they need 10 whole GPU nodes and 9 are free"
-check "--estimate: Kimi's loading" has "then about 12 min for Kimi to load"
+check "--estimate: all together, the latest start" has "all 3 models running  .*~[0-9:]* · in 2 h 0 min"
+check "--estimate: why, in words" has "why it waits  *· not enough free GPU nodes: these models need 10 together, 9 are free"
+check "--estimate: Kimi's loading" has "(Kimi-K3.1-Pro loads in ~14 min, measured on ROMEO)"
 check "--estimate: each alone" has "Kimi-K3.1-Pro  *now  *32 GPUs on 8 nodes"
 check "--estimate: Whisper, 1 GPU" has "Whisper-large-v3-turbo  *now  *1 GPU$"
 DSH_ROMEO_MODELS=kimi+deepseek FAKE_IDLE=12 run --estimate
@@ -76,7 +78,7 @@ check "--estimate: Slurm's refusal shown" has "DeepSeek-V4.1-Flash-1017  *unknow
 echo "900500 dsh-deepseek-v4.1-flash-1017-1m 0" >"$FAKE_ROMEO_STATE/jobs"; echo dsh-deepseek-v4.1-flash-1017-1m >"$FAKE_ROMEO_STATE/pending"
 FAKE_START=2099-01-02T03:04:05 run --estimate
 check "--estimate: a queued job, its own estimate" has "DeepSeek-V4.1-Flash-1017  *queued  *job 900500 pending, starts ~01-02 03:04 (no free GPU nodes yet)"
-check "--estimate: a queued job, the headline" has "model running  *~01-02 03:04 · in "
+check "--estimate: a queued job, the headline" has "model running  *01-02 ~03:04 · in [0-9]* days"
 check "--estimate: your GPUs counted" has "your GPUs  *8 of 60 in use"
 check "--estimate: nothing to launch" lacks "dsh-romeo --launch   start them"
 rm -f "$FAKE_ROMEO_STATE/jobs" "$FAKE_ROMEO_STATE/pending"
@@ -566,7 +568,8 @@ out=$(DSH_HOME=$P "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1); code=
 check "plugins: installed, off" has "dsh-sidenote: installed, off"
 check "plugins: exit 0" test "$code" = 0
 check "plugins: dependencies of the profile" node -e 'const d=require(process.argv[1]); process.exit(d.dependencies["dsh-prompt-predict"] && d.dependencies["dsh-sidenote"] ? 0 : 1)' "$P/profiles/web/package.json"
-check "plugins: not in the selection (off)" node -e 'const d=require(process.argv[1]); process.exit(d.dsh.profile.bundles.some((b) => b.startsWith("dsh-")) ? 1 : 0)' "$P/profiles/web/package.json"
+check "plugins: not in the selection (off)" node -e 'const d=require(process.argv[1]); process.exit(d.dsh.profile.bundles.some((b) => b.startsWith("dsh-") && b !== "dsh-romeo-status") ? 1 : 0)' "$P/profiles/web/package.json"
+check "plugins: dsh-romeo-status installed on" has "dsh-romeo-status: installed, on"
 node -e 'const fs=require("fs"),f=process.argv[1],d=require(f); d.dsh.profile.bundles.push("dsh-sidenote"); fs.writeFileSync(f, JSON.stringify(d))' "$P/profiles/web/package.json"
 out=$(DSH_HOME=$P "$ROOT/share/optional-plugins.sh" web "$FAKE/dsh" 2>&1)
 check "plugins again: left as they are" has "dsh-sidenote: already in the web profile, left as it is"
@@ -600,6 +603,7 @@ check "plugins: and it stays off" node -e 'process.exit(require(process.argv[1])
 
 # dsh-romeo's build of dsh-prompt-predict (share/plugins): linked from the repository, and it replaces
 # another version of the plugin, on or off as it was.
+check "plugins: dsh-romeo-status selected" node -e 'process.exit(require(process.argv[1]).dsh.profile.bundles.includes("dsh-romeo-status") ? 0 : 1)' "$P/profiles/web/package.json"
 check "plugins: dsh-prompt-predict linked from share/plugins" node -e 'process.exit(require(process.argv[1]).dependencies["dsh-prompt-predict"] === "link:" + process.argv[2] ? 0 : 1)' "$P/profiles/web/package.json" "$ROOT/share/plugins/dsh-prompt-predict"
 P7=$T/plugins-home7; mkdir -p "$P7/profiles/web"
 echo '{"dependencies":{"dsh-prompt-predict":"0.2.11"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-prompt-predict"]}}}' >"$P7/profiles/web/package.json"
@@ -644,13 +648,13 @@ check "--update: local changes stop it" has "has local changes"
 if [ "$(uname)" = Darwin ]; then
   git -C "$U/clone" checkout -q README.md
   echo again >"$U/other/NEWS"; G -C "$U/other" commit -qam again; git -C "$U/other" push -q origin HEAD:main 2>/dev/null
-  out=$( (sleep 2; printf 'n\n') | DSH_ROMEO_CONFIG_DIR=$T/upd-conf script -q /dev/null "$U/clone/bin/dsh-romeo" --status 2>&1 | tr -d '\r')
+  out=$( (sleep 5; printf 'n\n') | DSH_ROMEO_CONFIG_DIR=$T/upd-conf script -q /dev/null "$U/clone/bin/dsh-romeo" --status 2>&1 | tr -d '\r')
   check "start: an update is offered" has "an update is available"
   check "start: no by default, nothing installed" has "later: dsh-romeo --update"
-  out=$( (sleep 2; printf 'y\n') | DSH_ROMEO_INSTALL=true DSH_ROMEO_CONFIG_DIR=$T/upd-conf script -q /dev/null "$U/clone/bin/dsh-romeo" --status 2>&1 | tr -d '\r')
+  out=$( (sleep 5; printf 'y\n') | DSH_ROMEO_INSTALL=true DSH_ROMEO_CONFIG_DIR=$T/upd-conf script -q /dev/null "$U/clone/bin/dsh-romeo" --status 2>&1 | tr -d '\r')
   check "start: yes updates" has "dsh-romeo updated to"
   check "start: and it is the latest" test "$(git -C "$U/clone" rev-parse HEAD)" = "$(git -C "$U/clone" rev-parse origin/main)"
-  out=$( (sleep 2; printf 'n\n') | DSH_ROMEO_CONFIG_DIR=$T/upd-conf script -q /dev/null "$U/clone/bin/dsh-romeo" --status 2>&1 | tr -d '\r')
+  out=$( (sleep 5; printf 'n\n') | DSH_ROMEO_CONFIG_DIR=$T/upd-conf script -q /dev/null "$U/clone/bin/dsh-romeo" --status 2>&1 | tr -d '\r')
   check "start: up to date, nothing asked" bash -c "! grep -q 'an update is available' <<<\"\$1\"" _ "$out"
 fi
 check "--update: --help lists it" bash -c "'$ROOT/bin/dsh-romeo' --help 2>&1 | grep -q -- '--update'"
@@ -751,11 +755,189 @@ check "--help: what to run when something is wrong" has "dsh-romeo --doctor"
 run --doctor
 check "--doctor: the weights checked" has "weights .*ok .*DeepSeek-V4.1-Flash-1017"
 
-for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/rustxng-install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
+for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/rustxng-install.sh" "$ROOT"/share/{estimate,maint,history,clean,top,watch}.sh "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
   out=$(bash -n "$f" 2>&1); check "syntax: $(basename "$f")" test -z "$out"
 done
+# ---------------------------------------------------------------- planning and running the jobs
+DS=dsh-deepseek-v4.1-flash-1017-1m
+export DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off   # whatever earlier tests remembered
+rm -f "$FAKE_ROMEO_STATE/jobs" "$FAKE_ROMEO_STATE/pending" "$FAKE_ROMEO_STATE/sacct"
+# --estimate: shorter jobs that start sooner, a ROMEO stop in the way.
+FAKE_ETA=7200 FAKE_SHORT=1 run --estimate
+check "--estimate: the longest job that starts now" has "a shorter job starts now  *up to 4 h 30 min DSH_ROMEO_TIME=04:30:00 dsh-romeo --launch"
+check "--estimate: --watch offered while it waits" has "dsh-romeo --estimate --watch"
+# Why it waits: free nodes, other projects first, the project's GPUs held by another member.
+DSH_ROMEO_MODELS=kimi+deepseek FAKE_ETA_FULL=7200 run --estimate
+check "--estimate: why, the free nodes" has "why it waits  *· not enough free GPU nodes: these models need 10 together, 9 are free, the others are busy"
+check "--estimate: why, together" has "each model alone would start sooner: they must all run at once for dsh"
+check "--estimate: another choice of models" has "other models  *Kimi-K3.1-Pro alone starts now: dsh-romeo --models kimi --launch"
+echo "4|gres/gpu:4|90000|r999" >"$FAKE_ROMEO_STATE/queue-ahead"
+DSH_ROMEO_MODELS=kimi+deepseek FAKE_FAIRSHARE=0.05 run --estimate
+check "--estimate: why, other projects first" has "1 GPU jobs of other projects (16 GPUs) wait with a higher priority: your project used ROMEO a lot lately (fair-share 0.05 of 1)"
+rm -f "$FAKE_ROMEO_STATE/queue-ahead"
+echo "alice|RUNNING|6|gres/gpu:4|$(date -r $(($(date +%s) + 5400)) +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -d '+90 min' +%Y-%m-%dT%H:%M:%S)" >"$FAKE_ROMEO_STATE/project-jobs"
+DSH_ROMEO_MODELS=kimi+deepseek FAKE_IDLE=12 run --estimate
+check "--estimate: why, the project's GPUs" has "project r000000 has 60 GPUs for all its members: alice 24 now, 36 left, these models need 40; enough is free when their jobs end"
+check "--estimate: the project's limit sets the time" has "all 2 models running  .*~[0-9:]* · in 1 h [23][90] min"
+rm -f "$FAKE_ROMEO_STATE/project-jobs"
+DSH_ROMEO_MODELS=kimi+deepseek FAKE_IDLE=12 run --estimate
+check "--estimate: no why when it starts now" lacks "why it waits"
+run --estimate --now
+check "--estimate: an unknown argument refused" has "--estimate takes --watch or nothing"
+run --estimate
+check "--estimate: no shorter line when 8 h starts now" lacks "shorter jobs"
+iso() { date -r "$1" +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -d "@$1" +%Y-%m-%dT%H:%M:%S; }
+now=$(date +%s)
+{ echo "ReservationName=training StartTime=$(iso $((now + 3600))) EndTime=$(iso $((now + 7200))) Duration=01:00:00 Nodes=romeo-a[001-030] NodeCnt=30 Flags=FLEX Groups=r1 State=INACTIVE Comment=r1"
+  echo "ReservationName=stop StartTime=$(iso $((now + 3 * 3600))) EndTime=$(iso $((now + 27 * 3600))) Duration=1-00:00:00 Nodes=romeo-a[001-058],romeo-c[001-040] NodeCnt=98 Flags=SPEC_NODES,ALL_NODES Groups=romeoadmin State=INACTIVE Comment=Prevision Arret GPFS"
+} >"$FAKE_ROMEO_STATE/reservations"
+run --estimate
+check "--estimate: the ROMEO stop" has "ROMEO stop  *.* → .* (Prevision Arret GPFS)"
+check "--estimate: what fits before it" has "a job of 8 h cannot end before it, so Slurm holds it until after; 2 h 30 min fits: DSH_ROMEO_TIME=02:30:00 dsh-romeo --launch"
+check "--estimate: a training is not a stop" lacks "training"
+DSH_ROMEO_TIME=02:00:00 run --estimate
+check "--estimate: a job ending before the stop" has "a job of 2 h launched now ends before it"
+DSH_ROMEO_TIME=02:00:00 run --launch
+check "--launch: a job ending before the stop, no warning" lacks "cannot end before it"
+run --stop
+run --launch </dev/null
+check "--launch: warns of the stop" has "ROMEO stops .*: a job of 8 h cannot end before it, so it would wait until"
+check "--launch: says what fits" has "DSH_ROMEO_TIME=02:30:00 dsh-romeo --launch   2 h 30 min, ends before it"
+check "--launch: not in a terminal, launched anyway" grep -q "$DS" "$FAKE_ROMEO_STATE/jobs"
+run --stop
+rm -f "$FAKE_ROMEO_STATE/reservations" "$FAKE_ROMEO_STATE/jobs"
+
+# --history: waited, loaded, ran, how each ended; the loading times --estimate then uses.
+mkdir -p "$FAKE_ROMEO_HOME/.romeollmtool/logs" "$FAKE_ROMEO_HOME/.dsh-romeo"
+{ echo "900100|romeollmtool-$DS|$(iso $((now - 7200)))|$(iso $((now - 7080)))|$(iso $((now - 60)))|CANCELLED by 1|billing=1,gres/gpu=8"
+  echo "900101|romeollmtool-$DS|$(iso $((now - 600)))|Unknown|Unknown|PENDING|billing=1,gres/gpu=8"
+} >"$FAKE_ROMEO_STATE/history"
+printf '%s\n' "$(iso $((now - 6600)) | tr T ' '),123 INFO scripts.py:1 -- Ray runtime started." "INFO:     Application startup complete." >"$FAKE_ROMEO_HOME/.romeollmtool/logs/slurm-900100.err"
+echo "$((now - 60)) stopped 900100 idle 60" >"$FAKE_ROMEO_HOME/.dsh-romeo/watch.log"
+run --history
+check "--history: a job, its wait, loading, run" has "900100  *DeepSeek-V4.1-Flash-1017 .* 2 min  *8 min  *1 h 57 min  *15.6  *stopped after 60 min idle"
+check "--history: a queued job" has "900101  *DeepSeek-V4.1-Flash-1017 .* 10 min+ .*queued"
+check "--history: typical loading" has "DeepSeek-V4.1-Flash-1017  *waits 2 min  *loads in ~8 min (1 starts), medians"
+check "--history: GPU hours" has "GPU hours  *16"
+run --history 0
+check "--history 0: refused" has "--history takes a number of days"
+run --estimate
+check "--estimate: loading from your starts" has "ready in dsh  *~[0-9:]* · in 8 min (DeepSeek-V4.1-Flash-1017 loads in ~8 min, your last 1 start)"
+
+# --usage
+run --usage
+check "--usage: yours" has "you  *353 GPU-h  *32 % of the project"
+check "--usage: the project" has "project r000000  *1075 GPU-h  *2 members used GPUs this month"
+check "--usage: no cap in Slurm" has "limit  *none in Slurm"
+check "--usage: dsh-romeo's jobs" has "dsh-romeo, 30 days  *16 GPU-h  *DeepSeek 16"
+echo "900200 $DS $(date +%s)" >"$FAKE_ROMEO_STATE/jobs"
+FAKE_GPU_MINUTES_CAP=120000 FAKE_ELAPSED=1:00:00 FAKE_LEFT=7:00:00 run --usage
+check "--usage: an hours cap" has "limit  *2000 GPU-h  *53 % used"
+check "--usage: running now" has "running now  *8 GPUs  *8 GPU-h so far, 64 GPU-h if they run to the end"
+
+# --top: one snapshot when not in a terminal, with tokens/s from two rounds.
+mkdir -p "$FAKE_ROMEO_HOME/.romeollmtool/stats"; echo '{"fiche_id": "x"}' >"$FAKE_ROMEO_HOME/.romeollmtool/stats/requests-$(date +%Y-%m-%d).jsonl"
+run --top
+check "--top: a running job's counters" has "DeepSeek-V4.1-Flash-1017  *900200  *3  *1  *[0-9][0-9]*  *25 %  *7 h 59 min"
+check "--top: the last request" has "last request"
+rm -f "$FAKE_ROMEO_STATE/jobs"
+run --top
+check "--top: nothing running" has "no model job running"
+
+# The watcher: idle stop, relay, the GPU limit.
+watch() { HOME=$FAKE_ROMEO_HOME USER=demo bash "$ROOT/share/watch.sh" "$FAKE/romeollmtool" r000000 08:00:00 "$@"; }
+echo "900300 $DS $(date +%s)" >"$FAKE_ROMEO_STATE/jobs"
+: >"$FAKE_ROMEO_HOME/.dsh-romeo/watch.log"
+out=$(watch 0 off 40 g1 "$DS" 2>&1)
+check "watcher: idle, the jobs stopped" grep -q "stopped 900300 idle 0" "$FAKE_ROMEO_HOME/.dsh-romeo/watch.log"
+check "watcher: idle, nothing left" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs'"
+echo "900301 $DS $(date +%s)" >"$FAKE_ROMEO_STATE/jobs"
+( FAKE_LEFT=0:20:00 FAKE_ELAPSED=7:40:00 watch off on 40 g2 "$DS" >/dev/null 2>&1 & )
+for _ in $(seq 1 50); do grep -q relay "$FAKE_ROMEO_HOME/.dsh-romeo/watch.log" && break; sleep 0.2; done
+echo stopped >"$FAKE_ROMEO_HOME/.dsh-romeo/watch.gen"
+check "watcher: relay, the next job launched" grep -q "relay $DS 900301 9" "$FAKE_ROMEO_HOME/.dsh-romeo/watch.log"
+check "watcher: relay, two jobs" test "$(grep -c . "$FAKE_ROMEO_STATE/jobs")" -ge 2
+sleep 1.5
+echo "900302 $DS $(date +%s)" >"$FAKE_ROMEO_STATE/jobs"
+( FAKE_LEFT=0:20:00 FAKE_ELAPSED=7:40:00 FAKE_GPU_LIMIT=8 watch off on 40 g3 "$DS" >/dev/null 2>&1 & )
+for _ in $(seq 1 50); do grep -q no-relay "$FAKE_ROMEO_HOME/.dsh-romeo/watch.log" && break; sleep 0.2; done
+echo stopped >"$FAKE_ROMEO_HOME/.dsh-romeo/watch.gen"
+check "watcher: no relay over the GPU limit" grep -q "no-relay $DS 900302 over your limit of 8 GPUs (8 held, 8 more)" "$FAKE_ROMEO_HOME/.dsh-romeo/watch.log"
+sleep 1.5
+( FAKE_LEFT=0:20:00 FAKE_ELAPSED=0:10:00 watch off on 40 g4 "$DS" >/dev/null 2>&1 & )
+sleep 2.5
+echo stopped >"$FAKE_ROMEO_HOME/.dsh-romeo/watch.gen"
+check "watcher: a young job is not relayed" test "$(grep -c " relay $DS 900302" "$FAKE_ROMEO_HOME/.dsh-romeo/watch.log")" = 0
+rm -f "$FAKE_ROMEO_STATE/jobs"
+echo "$(date +%s) stopped 900300 idle 60" >"$FAKE_ROMEO_HOME/.dsh-romeo/watch.log"
+echo "romeollmtool-$DS 900300|CANCELLED by 1|$(iso "$now")|romeo-a031|0:0" >"$FAKE_ROMEO_STATE/sacct"
+run --status
+check "--status: the last job stopped for lack of requests" has "no job .*(last one: stopped at [0-9:]* after 60 min without requests (DSH_ROMEO_IDLE_STOP=off))"
+check "--status: the watcher's last action" has "last: jobs stopped at [0-9:]* after 60 min without requests"
+rm -f "$FAKE_ROMEO_STATE/sacct"
+DSH_ROMEO_IDLE_STOP=45 run --launch
+check "--launch: the watcher started" has "watcher on ROMEO: stops the jobs after 45 min without requests"
+check "--launch: status.json for the badge" grep -q '"idle":"45"' "$DSH_ROMEO_CONFIG_DIR/status.json"
+check "--launch: status.json, the loading time" grep -q '"load":480' "$DSH_ROMEO_CONFIG_DIR/status.json"
+run --stop
+check "--stop: the watcher told to end" grep -qx stopped "$FAKE_ROMEO_HOME/.dsh-romeo/watch.gen"
+DSH_ROMEO_IDLE_STOP=soon run --launch
+check "--launch: a wrong DSH_ROMEO_IDLE_STOP said" has "DSH_ROMEO_IDLE_STOP: minutes or off, not 'soon'"
+run --stop
+
+# --clean: old job logs on ROMEO, never a queued job's.
+L=$FAKE_ROMEO_HOME/.romeollmtool/logs
+for f in slurm-800001.out slurm-800001.err slurm-800002.err slurm-900400.err; do echo log >"$L/$f"; touch -t 202501010000 "$L/$f"; done
+echo "900400 $DS $(date +%s)" >"$FAKE_ROMEO_STATE/jobs"
+run --clean </dev/null
+check "--clean: lists the old logs" has "3 job logs older than 30 days"
+check "--clean: not in a terminal, nothing deleted" test -f "$L/slurm-800001.out"
+run --clean --yes
+check "--clean --yes: deleted" has "3 job logs deleted"
+check "--clean --yes: the old logs gone" test ! -e "$L/slurm-800001.err"
+check "--clean --yes: a queued job's log kept" test -f "$L/slurm-900400.err"
+run --clean
+check "--clean: nothing left to delete" has "no job log older than 30 days"
+rm -f "$FAKE_ROMEO_STATE/jobs"
+
+# --doctor --fix: a missing fiche copied again.
+rm -f "$FAKE_ROMEO_HOME/.romeollmtool/configs/$DS.yaml"
+run --doctor
+check "--doctor: a missing fiche" has "fiche  *failed  *$DS is not on ROMEO"
+check "--doctor: says --fix" has "dsh-romeo --doctor --fix repairs what it can"
+run --doctor --fix
+check "--doctor --fix: the fiche copied" has "fiche  *fixed  *$DS copied to ROMEO"
+check "--doctor --fix: the fiche is back" test -f "$FAKE_ROMEO_HOME/.romeollmtool/configs/$DS.yaml"
+run --doctor --now
+check "--doctor: an unknown argument refused" has "--doctor takes --fix or nothing"
+
+# --switch: the desktop app switches without a restart; the Web UI on its next start.
+run --switch
+check "--switch without a job: says --launch" has "no model job on ROMEO"
+echo "900600 $DS 0" >"$FAKE_ROMEO_STATE/jobs"
+rm -f "$FAKE_ROMEO_STATE/app-running"
+run --switch
+check "--switch, no dsh running: the next start" has "the next dsh-romeo start uses DeepSeek-V4.1-Flash-1017"
+check "--switch: the overlay for the Web UI written" grep -q "dsh-deepseek-v4.1-flash-1017-1m" "$DSH_ROMEO_CONFIG_DIR/dsh.patch.yml"
+if [ "$(uname)" = Darwin ]; then
+  # The app runs on DeepSeek; --switch to kimi+deepseek rewrites its patch, no restart.
+  mkdir -p "$T/home5"
+  HOME=$T/home5 run --desktop
+  echo "900601 dsh-kimi-k3.1-pro-1m 0" >>"$FAKE_ROMEO_STATE/jobs"
+  HOME=$T/home5 DSH_ROMEO_MODELS=kimi+deepseek run --switch
+  check "--switch: the app switched without a restart" has "DeepSeek Harness switched to Kimi-K3.1-Pro, subagents on DeepSeek-V4.1-Flash-1017"
+  check "--switch: no restart" lacks "restarting DeepSeek Harness"
+  check "--switch: the app's patch on Kimi" grep -q "dsh-kimi-k3.1-pro-1m" "$T/home5/.dsh/profiles/desktop/cordis.patch.yml"
+  HOME=$T/home5 DSH_ROMEO_MODELS=kimi+deepseek run --switch
+  check "--switch again: nothing to change" has "already on these models"
+  rm -f "$FAKE_ROMEO_STATE/app-running"
+fi
+rm -f "$FAKE_ROMEO_STATE/jobs"
+
+out=$(node "$ROOT/share/plugins/dsh-romeo-status/test/describe.test.mjs" 2>&1); check "dsh-romeo-status: its tests" has "passed"
+
 if command -v shellcheck >/dev/null; then
-  out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT/share/estimate.sh" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" 2>&1); check "shellcheck" test -z "$out"
+  out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT"/share/{estimate,maint,history,clean,top,watch}.sh "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" 2>&1); check "shellcheck" test -z "$out"
   out=$(shellcheck -S warning -s bash "$SKILL/scripts/env.sh" 2>&1); check "shellcheck: skill env.sh" test -z "$out"
 fi
 

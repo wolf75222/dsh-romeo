@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Fake sreport cluster AccountUtilizationByUser ... -t hours: the project, then its members.
+echo "romeo2024|demo|||gres/gpu|${FAKE_PROJECT_HOURS:-1075}"
+echo "romeo2024|demo|demo|Demo User|gres/gpu|${FAKE_MY_HOURS:-353}"
+echo "romeo2024|demo|other|Other|gres/gpu|722"
