@@ -34,3 +34,9 @@
               toolName: subagent_fork
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+# == @deepseek-ai/dsh-base, patched by @deepseek-ai/dsh-web-app
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+  config:
+    personaPrefix: You are a coding agent powered by the {{model}} model.
+    personaSuffix: an older suffix

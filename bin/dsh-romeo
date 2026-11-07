@@ -653,15 +653,29 @@ helper_patch() {
     && grep -q -- '- id: tool-subagent$' <<<"$dump" \
     || { say "${Y}cannot read dsh's composition${N}: subagents and titles keep $LABEL"; return 0; }
   printf '# Subagents (the "subagent" tool) and session titles on %s.\n' "$SUB_LABEL"
-  awk -v model="$SUB_MODEL" -v effort="$DSH_ROMEO_EFFORT" '
+  # What the agent is told about its subagents' models (the system prompt's persona suffix): it can
+  # pick either model only where dsh exposes the choice (the Web and desktop presets).
+  local suffix
+  if grep -q 'modelSelection: true' <<<"$dump"; then
+    suffix="Subagents on ROMEO: the subagent tool runs each child on $SUB_LABEL (provider romeo, model $SUB_MODEL) unless you pass provider romeo and model $MODEL to run it on $LABEL. Both have a 1M-token context. Use $SUB_LABEL, the default, for searching, reading, running tests and bounded edits: it is faster and serves many agents at once. Pick $LABEL for hard reasoning, design or review. A subagent can start its own subagents, so a $LABEL subagent can hand work to $SUB_LABEL ones. Keep at most 6 to 8 $LABEL agents running at once, subagents included."
+  else
+    suffix="Subagents on ROMEO: the subagent tool runs each child on $SUB_LABEL (model $SUB_MODEL, 1M-token context), faster and able to serve many agents at once; you run on $LABEL."
+  fi
+  awk -v model="$SUB_MODEL" -v effort="$DSH_ROMEO_EFFORT" -v suffix="$suffix" '
     function flush() { if (hit) printf "%s", row; row = ""; hit = 0; top = "" }
     function lead(s) { match(s, /^ */); return RLENGTH }
     /^#/ { next }  # the dump'\''s source comments; blank lines belong to block scalars
     /^- / { flush(); inside = 0; top = $0; sub(/^- id: /, "", top) }
+    top == "system-prompt" && /^    personaSuffix:/ { next }  # replaced by ours below
     {
       row = row $0 "\n"
       if ((top == "session-title-llm" || top == "optional-session-title-all-prompts") && $0 == "  config:") {
         row = row "    provider: romeo\n    model: " model "\n"
+        hit = 1
+      }
+      if (top == "system-prompt" && $0 == "  config:") {
+        q = suffix; gsub(/\047/, "\047\047", q)
+        row = row "    personaSuffix: \047" q "\047\n"
         hit = 1
       }
       if ($0 ~ /^ *- id: tool-subagent$/) { sub_at = lead($0); inside = 1; next }
