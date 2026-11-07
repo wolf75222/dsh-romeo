@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Fake sacctmgr show assoc ... format=GrpTRES: ROMEO's per-user limit.
+echo "cpu=1536,gres/gpu=${FAKE_GPU_LIMIT:-60}"

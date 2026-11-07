@@ -55,6 +55,7 @@ Host romeo
 | `dsh-romeo --serve` | only the model and the tunnel, then it prints the endpoint and returns |
 | `eval "$(dsh-romeo --env)"` | the endpoint and the key as variables of this shell |
 | `dsh-romeo --status` | the gateway, the tunnel, and a table of the model jobs: state, nodes, time left, or Slurm's estimated start while queued |
+| `dsh-romeo --eta` | before `--launch`: when each model's job would start if launched now (now, or ~21:40 in 1 h 12 min), from Slurm itself (`sbatch --test-only` on the script romeollmtool would submit, with your `--models`, `--voice` and `DSH_ROMEO_TIME`), nothing submitted. Also the idle GPU nodes, the GPUs your jobs already hold against your 60-GPU limit, a warning when the models together need more whole nodes than are idle, and a queued job's own estimate. Jobs ending early bring the estimate forward, higher-priority jobs push it back |
 | `dsh-romeo --stop` | cancels every dsh-romeo model job (also of an earlier `--models`) and closes the tunnel |
 | `dsh-romeo --doctor` | checks this computer (Node.js, dsh, the tunnel's port), SSH, romeollmtool, the project, the fiches on ROMEO, the key and the gateway; changes nothing, exits 1 if a check fails |
 | `dsh-romeo --completion bash\|zsh` | shell completion of the options, models and dsh profiles: `eval "$(dsh-romeo --completion zsh)"` in `~/.zshrc` (`bash`: `~/.bashrc`) |

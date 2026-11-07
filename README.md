@@ -23,6 +23,7 @@ Then run `dsh-romeo --launch` (in a new terminal if `install.sh` said `~/.local/
 | `dsh-romeo --launch` | starts the model on ROMEO, waits until it answers (about 10 min), opens dsh in your browser |
 | `dsh-romeo` | opens dsh on the model job already running |
 | `dsh-romeo --status` | what runs on ROMEO, and why the last job ended |
+| `dsh-romeo --eta` | when a model job launched now would start: Slurm's estimate, nothing submitted |
 | `dsh-romeo --stop` | stops the model jobs: they use your project's GPU hours while they run |
 | `dsh-romeo --doctor` | when something does not work: checks each piece and says what to type |
 | `dsh-romeo --update` | installs the latest dsh-romeo (shows the changes, asks first); dsh-romeo also checks each time it starts and offers it (no by default) |

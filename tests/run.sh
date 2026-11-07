@@ -49,6 +49,31 @@ run --status
 check "status: gateway stopped, no job, tunnel closed" has "gateway  *stopped"
 check "status: no model job" has "DeepSeek-V4.1-Flash-1017  *-  *no job"
 
+# --eta: Slurm's estimate for a job launched now (sbatch --test-only on romeollmtool's dry run).
+run --eta
+check "--eta: free GPU nodes" has "GPU nodes  *9 idle  *4 in use, 2 down"
+check "--eta: DeepSeek starts now" has "DeepSeek-V4.1-Flash-1017  *now  *8 GPUs free: romeo-a\[001-002\], partition short"
+check "--eta: nothing submitted" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs' 2>/dev/null"
+FAKE_ETA=4000 run --eta
+check "--eta: a later start, with the wait" has "DeepSeek-V4.1-Flash-1017  *~[0-9: -]*(in 1 h 6 min)"
+DSH_ROMEO_MODELS=kimi+deepseek DSH_ROMEO_VOICE=on run --eta
+check "--eta: Kimi, 32 GPUs" has "Kimi-K3.1-Pro  *now  *32 GPUs free"
+check "--eta: Whisper, 1 GPU" has "Whisper-large-v3-turbo  *now  *1 GPU free"
+check "--eta: together over the idle nodes" has "together they need 10 whole nodes (Kimi-K3.1-Pro 8 + DeepSeek-V4.1-Flash-1017 2), 9 are idle"
+DSH_ROMEO_MODELS=kimi+deepseek FAKE_IDLE=12 run --eta
+check "--eta: together within the idle nodes, no warning" lacks "together they need"
+DSH_ROMEO_MODELS=kimi+deepseek FAKE_GPU_LIMIT=36 run --eta
+check "--eta: over the GPU limit, blocked" has "DeepSeek-V4.1-Flash-1017  *blocked  *8 GPUs: over your limit of 36, your jobs hold 32"
+FAKE_SBATCH_ERROR="Invalid account or account/partition combination specified" run --eta
+check "--eta: Slurm's refusal shown" has "DeepSeek-V4.1-Flash-1017  *unknown  *sbatch: error: Invalid account"
+echo "900500 dsh-deepseek-v4.1-flash-1017-1m 0" >"$FAKE_ROMEO_STATE/jobs"; echo dsh-deepseek-v4.1-flash-1017-1m >"$FAKE_ROMEO_STATE/pending"
+FAKE_START=2099-01-02T03:04:05 run --eta
+check "--eta: a queued job, its own estimate" has "DeepSeek-V4.1-Flash-1017  *queued  *job 900500 pending, starts ~01-02 03:04 (no free GPU nodes yet)"
+check "--eta: your GPUs counted" has "your GPUs  *8/60"
+rm -f "$FAKE_ROMEO_STATE/jobs" "$FAKE_ROMEO_STATE/pending"
+run --launch --eta
+check "--launch --eta: refused" has "--launch and --eta do not combine"
+
 run
 check "start before --setup: fiche missing" has "next: dsh-romeo --setup"
 check "start before --setup: exit 1" test "$code" = 1

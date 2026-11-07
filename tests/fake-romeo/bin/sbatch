@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Fake sbatch: --test-only only. The script on stdin; FAKE_ETA: seconds from now to its start (0).
+# FAKE_SBATCH_ERROR: Slurm's refusal instead.
+[ "${1:-}" = --test-only ] || { echo "fake sbatch: only --test-only" >&2; exit 2; }
+script=$(cat)
+case $script in '#!'*) ;; *) echo "sbatch: error: line must start with #! followed by the path to an interpreter." >&2; exit 1 ;; esac
+[ -z "${FAKE_SBATCH_ERROR:-}" ] || { echo "sbatch: error: $FAKE_SBATCH_ERROR" >&2; exit 1; }
+at=$(($(date +%s) + ${FAKE_ETA:-0}))
+iso=$(date -r "$at" +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -d "@$at" +%Y-%m-%dT%H:%M:%S)
+n=$(printf '%s\n' "$script" | sed -n 's/^#SBATCH --nodes=//p')
+echo "sbatch: Job 999999 to start at $iso using $((n * 32)) processors on nodes romeo-a[001-00$n] in partition short" >&2

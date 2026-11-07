@@ -14,6 +14,11 @@ case "$1 ${2:-}" in
     [ -f "$f" ] || { echo "Fiche inconnue : $3" >&2; exit 1; }
     echo "source : $f"; grep -v '^#' "$f" ;;
   "launch "*)
+    case " $* " in *' --dry-run '*)  # like romeollmtool's: a banner, then the script (its #SBATCH lines here)
+      case $2 in *kimi*) n=8 g=4 ;; *whisper*) n=1 g=1 ;; *) n=2 g=4 ;; esac
+      echo "Fiche expérimentale : $2"; echo '#!/bin/bash'
+      echo "#SBATCH --job-name=romeollmtool-$2"; echo "#SBATCH --nodes=$n"; echo "#SBATCH --gres=gpu:$g"
+      exit 0 ;; esac
     id=$((900000 + $(wc -l <"$S/jobs" 2>/dev/null || echo 0) + 1))
     echo "$id $2 $(date +%s)" >>"$S/jobs"
     echo "Job $id soumis ($2)" ;;

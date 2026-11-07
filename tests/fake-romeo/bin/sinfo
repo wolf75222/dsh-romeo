@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Fake sinfo -N -o '%N %T %f': FAKE_IDLE idle GPU nodes (9), 4 mixed, 2 drained; one CPU node.
+i=0
+for _ in $(seq 1 "${FAKE_IDLE:-9}"); do i=$((i + 1)); echo "romeo-a$i idle armgpu"; done
+for st in mixed mixed mixed mixed drained drained; do i=$((i + 1)); echo "romeo-a$i $st armgpu"; done
+echo "romeo-c1 idle x64cpu"
