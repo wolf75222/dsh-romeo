@@ -229,6 +229,7 @@ if [ "$(uname)" = Darwin ]; then
   DSH_ROMEO_DESKTOP_DSH=$T/app-dsh HOME=$T/home run --models deepseek --desktop
   check "--desktop back to deepseek: no subagent preset left" bash -c "! grep -q 'preset-of-the-app' '$T/home/.dsh/profiles/desktop/cordis.patch.yml'"
   check "--desktop back to deepseek: no model choice left" bash -c "! grep -q 'subagent-model-selection-settings' '$T/home/.dsh/profiles/desktop/cordis.patch.yml'"
+  check "--desktop back to deepseek: no subagent model label left" bash -c "! grep -q 'subagent-model-label' '$T/home/.dsh/profiles/desktop/cordis.patch.yml'"
   # The Kimi job ends (scancel), the DeepSeek job stays for the tests below.
   grep -v kimi "$FAKE_ROMEO_STATE/jobs" >"$FAKE_ROMEO_STATE/jobs.new"; mv "$FAKE_ROMEO_STATE/jobs.new" "$FAKE_ROMEO_STATE/jobs"
   run --models deepseek --status
@@ -363,6 +364,24 @@ check "kimi+deepseek: Kimi ready" has "Kimi-K3.1-Pro ready"
 check "kimi+deepseek: DeepSeek ready for the subagents" has "DeepSeek-V4.1-Flash-1017 ready for the subagents"
 check "kimi+deepseek overlay: both models" bash -c "grep -q 'id: dsh-kimi-k3.1-pro-1m' '$overlay' && grep -q 'id: dsh-deepseek-v4.1-flash-1017-1m' '$overlay'"
 check "kimi+deepseek overlay: the agent may choose either model for a subagent" bash -c "grep -A6 '^- id: subagent-model-selection-settings' '$overlay' | grep -q 'enabled: true' && grep -A6 '^- id: subagent-model-selection-settings' '$overlay' | grep -q 'model: dsh-kimi-k3.1-pro-1m' && grep -A6 '^- id: subagent-model-selection-settings' '$overlay' | grep -q 'model: dsh-deepseek-v4.1-flash-1017-1m'"
+check "kimi+deepseek overlay: subagent names carry their model" bash -c "grep -A6 '    - id: dsh-romeo-subagent-model-label' '$overlay' | grep -q \"'dsh-kimi-k3.1-pro-1m': Kimi\" && grep -A6 '    - id: dsh-romeo-subagent-model-label' '$overlay' | grep -q \"'dsh-deepseek-v4.1-flash-1017-1m': DeepSeek\""
+label_out=$(node --input-type=module -e "
+  const m = await import(process.argv[1])
+  class S { async startActivation(spec) { return spec.label } }
+  const s = new S(); let off
+  m.apply({ subagents: s, on: (e, f) => { off = f } }, { labels: { k: 'Kimi', d: 'DeepSeek' } })
+  m.apply({ subagents: s, on: () => {} }, { labels: {} })
+  const parent = { options: { model: 'k' }, session: { requestHeader: () => undefined } }
+  const out = [
+    await s.startActivation({ label: 'Fix it', request: { parent, agentOptions: { model: 'd' } } }),
+    await s.startActivation({ label: 'Review', request: { parent } }),
+    await s.startActivation({ label: 'Again · Kimi', request: { parent } }),
+    await s.startActivation({ request: { parent: { session: { requestHeader: () => ({ config: { model: 'd' } }) } } } }),
+    await s.startActivation({ label: 'Odd', request: { parent: {}, agentOptions: { model: 'other' } } }),
+  ]
+  off(); out.push(await s.startActivation({ label: 'After', request: { parent } }))
+  console.log(out.join('|'))" "$ROOT/share/subagent-model-label.mjs" 2>&1)
+check "subagent label plugin: the chosen model, the parent's, once, unknown ids, removed on dispose" test "$label_out" = "Fix it · DeepSeek|Review · Kimi|Again · Kimi|Subagent · DeepSeek|Odd · other|After"
 check "kimi+deepseek overlay: the agent is told it may pick either model" bash -c "grep -A5 '^- id: system-prompt' '$overlay' | grep 'personaSuffix:' | grep -q 'model dsh-kimi-k3.1-pro-1m to run it on Kimi-K3.1-Pro'"
 check "kimi+deepseek overlay: the persona prefix kept" bash -c "grep -A5 '^- id: system-prompt' '$overlay' | grep -q 'personaPrefix: You are a coding agent'"
 check "kimi+deepseek overlay: one persona suffix" bash -c "[ \$(grep -c 'personaSuffix:' '$overlay') = 1 ] && ! grep -q 'an older suffix' '$overlay'"

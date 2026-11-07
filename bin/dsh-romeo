@@ -291,6 +291,13 @@ label_of() {  # the model's name in the clients
   esac
 }
 
+short_of() {  # the model's short name in the subagent list
+  case $1 in
+    *kimi*) echo Kimi ;;
+    *) echo DeepSeek ;;
+  esac
+}
+
 read_fiches() {
   read_fiche "$FICHE"
   SUB_MODEL='' SUB_LABEL='' VOICE_MODEL=''
@@ -700,6 +707,14 @@ helper_patch() {
     allowedModels:
       - { provider: romeo, model: $MODEL }
       - { provider: romeo, model: $SUB_MODEL }
+# The subagent list names each subagent's model: "Fix the parser · $(short_of "$SUB_MODEL")".
+- insert:
+    - id: dsh-romeo-subagent-model-label
+      name: $ROOT/share/subagent-model-label.mjs
+      config:
+        labels:
+          $(yaml_str "$MODEL"): $(short_of "$MODEL")
+          $(yaml_str "$SUB_MODEL"): $(short_of "$SUB_MODEL")
 YAML
   if profile_has_bundle "$manifest" dsh-prompt-predict; then
     cat <<YAML
@@ -895,7 +910,7 @@ merge_desktop_patch() {
       n = split(earlier, a, " "); for (i = 1; i <= n; i++) old[a[i]] = 1
     }
     function flush() {
-      if (row != "" && !(id in ours) && !((id in old) && row ~ /romeo/) && row !~ /dsh-romeo-searxng/ && row !~ /dsh-romeo-rustxng/ && row !~ /dsh-romeo-whisper/ && row !~ /agentOptions:\n *provider: romeo\n/)
+      if (row != "" && !(id in ours) && !((id in old) && row ~ /romeo/) && row !~ /dsh-romeo-searxng/ && row !~ /dsh-romeo-rustxng/ && row !~ /dsh-romeo-whisper/ && row !~ /dsh-romeo-subagent-model-label/ && row !~ /agentOptions:\n *provider: romeo\n/)
         printf "%s", row
       row = ""; id = ""
     }
