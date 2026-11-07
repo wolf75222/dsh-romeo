@@ -5,7 +5,7 @@
 #   dsh-romeo --launch            start the model on ROMEO, wait until it answers, open dsh
 #   dsh-romeo                     open dsh on the model job already running
 #   dsh-romeo --status            what runs on ROMEO, and why the last job ended
-#   dsh-romeo --eta               when a model job launched now would start (Slurm's estimate)
+#   dsh-romeo --estimate          when everything would run if launched now (Slurm's estimate)
 #   dsh-romeo --stop              stop the model jobs (they use GPU hours) and the tunnel
 #
 # Options (before the command, in any order; --models, --voice and --web are remembered)
@@ -1221,7 +1221,7 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
 }
 
 cmd_completion() {  # $1: bash or zsh. Options, then the values of --models, --voice and --completion.
-  local words="--models --voice --web --launch --desktop --run --serve --env --status --eta --stop --setup --logs --doctor --update --completion --version --help"
+  local words="--models --voice --web --launch --desktop --run --serve --env --status --estimate --stop --setup --logs --doctor --update --completion --version --help"
   case ${1:-} in
     bash | zsh) ;;
     *) die "--completion takes bash or zsh" 'eval "$(dsh-romeo --completion zsh)"   # in ~/.zshrc' ;;
@@ -1304,72 +1304,104 @@ cmd_status() {
   done
 }
 
-eta_of() {  # $1 start epoch, $2 now: "now", "~21:40 (in 1 h 12 min)", "~11-08 09:15 (in 12 h 3 min)"
-  local d=$(($1 - $2)) hm day
-  [ "$d" -gt 60 ] || { echo now; return; }
+iso_epoch() { date -d "$1" +%s 2>/dev/null || date -j -f %Y-%m-%dT%H:%M:%S "$1" +%s 2>/dev/null; }  # Slurm's local time
+clock_of() {  # $1 epoch: "21:40", "11-08 09:15" on another day
+  local day hm
   hm=$(date -r "$1" +%H:%M 2>/dev/null || date -d "@$1" +%H:%M)
-  day=$(date -r "$1" +%Y-%m-%d 2>/dev/null || date -d "@$1" +%Y-%m-%d)
-  [ "$day" = "$(date +%Y-%m-%d)" ] || hm="${day#*-} $hm"
-  if [ "$d" -ge 3600 ]; then echo "~$hm (in $((d / 3600)) h $((d % 3600 / 60)) min)"; else echo "~$hm (in $((d / 60)) min)"; fi
+  day=$(date -r "$1" +%m-%d 2>/dev/null || date -d "@$1" +%m-%d)
+  if [ "$day" = "$(date +%m-%d)" ]; then echo "$hm"; else echo "$day $hm"; fi
 }
+when_of() {  # $1 epoch, $2 now: "now", "~21:40 · in 1 h 12 min"
+  local d=$(($1 - $2))
+  if [ "$d" -le 60 ]; then echo now
+  elif [ "$d" -ge 3600 ]; then echo "~$(clock_of "$1") · in $((d / 3600)) h $((d % 3600 / 60)) min"
+  else echo "~$(clock_of "$1") · in $(((d + 59) / 60)) min"; fi
+}
+est_row() { printf '  %-25s %s%-24s%s %s\n' "$1" "$3" "$2" "$N" "$4" >&2; }
 
-eta_row() { printf '  %-25s %s%-9s%s %s\n' "$1" "$3" "$2" "$N" "$4" >&2; }  # status_row, wider names
-
-# When a model job submitted now would start: Slurm's own estimate (sbatch --test-only on the script
-# romeollmtool would submit), nothing submitted. Jobs already queued show their own estimate.
-cmd_eta() {
+# When everything would run if launched now: Slurm's own estimate (sbatch --test-only on the scripts
+# romeollmtool would submit, share/estimate.sh), nothing submitted. dsh needs every model running,
+# so the headline is when the last one starts: the whole-node jobs are estimated together (one job
+# with all their nodes), since each alone may fit in the free nodes while together they do not.
+cmd_estimate() {
   connect
-  local f jobs out kind a b c d held limit need whole gpus when now_nodes=0 now_names=''
-  say "start estimate ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE, $DSH_ROMEO_TIME, project ${ROMEO_PROJECT:-?}${N}"
   [ -n "$ROMEO_PROJECT" ] || die "no project code (ROMEO_PROJECT in $CONFIG_DIR/config)" "$ROOT/install.sh --project r123456"
-  # GPUs your jobs hold or wait for, and your limit (60 on ROMEO): over it a job waits for yours to end.
-  out=$(rsh "squeue -u \$USER -h -t R,PD -o '%D %b' | awk '{ n = \$2; sub(/.*:/, \"\", n); if (n ~ /^[0-9]+\$/) s += \$1 * n } END { print s + 0 }'
-    sacctmgr -nP show assoc user=\$USER account=$(printf %q "$ROMEO_PROJECT") format=GrpTRES | grep -oE 'gres/gpu=[0-9]+' | head -1 | cut -d= -f2
-    sinfo -h -N -o '%N %T %f' | awk '/armgpu/' | sort -u | awk '{ print \$2 }' | sort | uniq -c | tr '\n' ' '" </dev/null) || { lost $?; die "ROMEO did not answer" "dsh-romeo --doctor"; }
-  held=$(sed -n 1p <<<"$out"); limit=$(sed -n 2p <<<"$out")
-  local nodes idle=0 busy=0 off=0 n st
-  nodes=$(sed -n 3p <<<"$out")
-  set -- $nodes
+  local f jobs todo='' rows='' out now held limit idle=0 busy=0 total=0 n st
+  local latest=0 alone_max=0 alone_min='' all='' problem='' loading='' count=0 whole=0
+  local kind a b c d e gpus color s
+  for f in $FICHES; do  # jobs already there: their own state
+    count=$((count + 1))
+    jobs=$(jobs_of_fiche "$f") || die "squeue did not answer on ROMEO" "dsh-romeo --estimate   (again)"
+    [ "$(label_of "$f")" != Kimi-K3.1-Pro ] || grep -q ' RUNNING ' <<<"$jobs" || loading=Kimi
+    if [ -z "$jobs" ]; then todo="$todo $f"; continue; fi
+    if grep -q ' RUNNING ' <<<"$jobs"; then
+      rows="$rows$(label_of "$f")|running|$G|$(summary "$jobs")"$'\n'
+    else
+      rows="$rows$(label_of "$f")|queued|$Y|$(summary "$jobs")"$'\n'
+      s=$(awk '{ print $6; exit }' <<<"$jobs")
+      if s=$(iso_epoch "$s"); then [ "$s" -le "$latest" ] || latest=$s; else problem="${problem:-the queued job of $(label_of "$f") has no estimate from Slurm yet}"; fi
+    fi
+  done
+  out=$(rsh_stdin "bash -s -- $(printf '%q ' "$ROMEOLLMTOOL" "$ROMEO_PROJECT" "$DSH_ROMEO_TIME") $todo" <"$ROOT/share/estimate.sh") || { lost $?; die "ROMEO did not answer" "dsh-romeo --doctor"; }
+  now=$(awk '$1 == "now" { print $2 }' <<<"$out"); now=${now:-$(date +%s)}
+  held=$(awk '$1 == "held" { print $2 }' <<<"$out"); held=${held:-0}
+  limit=$(awk '$1 == "limit" { print $2 }' <<<"$out")
+  # shellcheck disable=SC2046  # "N STATE" pairs, one word each
+  set -- $(awk '$1 == "nodes" { $1 = ""; print }' <<<"$out")
   while [ $# -ge 2 ]; do
     n=$1 st=$2; shift 2
-    case $st in idle) idle=$((idle + n)) ;; mixed* | allocated* | completing*) busy=$((busy + n)) ;; *) off=$((off + n)) ;; esac
+    total=$((total + n))
+    case $st in idle) idle=$((idle + n)) ;; mixed* | allocated* | completing*) busy=$((busy + n)) ;; esac
   done
-  eta_row "GPU nodes" "$idle idle" "$([ "$idle" -gt 0 ] && echo "$G" || echo "$Y")" "${D}$busy in use, $off down, drained or in maintenance${N}"
-  [ "${held:-0}" -eq 0 ] || eta_row "your GPUs" "${held}${limit:+/$limit}" "$D" "${D}held or awaited by your jobs${N}"
-  for f in $FICHES; do
-    jobs=$(jobs_of_fiche "$f") || { eta_row "$(label_of "$f")" unknown "$R" "squeue did not answer: try again"; continue; }
-    if [ -n "$jobs" ]; then
-      if grep -q ' RUNNING ' <<<"$jobs"; then eta_row "$(label_of "$f")" running "$G" "$(summary "$jobs")"
-      else eta_row "$(label_of "$f")" queued "$Y" "$(summary "$jobs")"; fi
-      continue
+  [ "$latest" -ge "$now" ] || latest=$now
+  while read -r kind f a b c d e; do
+    case $kind in
+      one)
+        if [ "$a" != ok ]; then
+          rows="$rows$(label_of "$f")|unknown|$R|$b $c $d $e"$'\n'; problem="${problem:-Slurm refuses the job of $(label_of "$f"): $b $c $d $e}"; continue
+        fi
+        gpus="$c GPU$([ "$c" = 1 ] || echo s)"; [ "$d" -le 1 ] || gpus="$gpus on $d nodes"
+        if [ -n "$limit" ] && [ $((held + c)) -gt "$limit" ]; then
+          rows="$rows$(label_of "$f")|over your GPU limit|$R|$gpus: your jobs already hold $held of $limit"$'\n'
+          problem="${problem:-over your limit of $limit GPUs: your jobs hold $held (dsh-romeo --stop, or wait for them)}"
+        else
+          color=$G; [ "$(when_of "$b" "$now")" = now ] || color=$Y
+          rows="$rows$(label_of "$f")|$(when_of "$b" "$now")|$color|$gpus"$'\n'
+        fi
+        held=$((held + c))
+        [ "$c" -lt $((4 * d)) ] || whole=$((whole + d))
+        [ "$b" -le "$alone_max" ] || alone_max=$b
+        [ -n "$alone_min" ] && [ "$b" -ge "$alone_min" ] || alone_min=$b
+        [ "$b" -le "$latest" ] || latest=$b ;;
+      all)
+        if [ "$f" = ok ]; then all=$a; [ "$a" -le "$latest" ] || latest=$a
+        else problem="${problem:-Slurm cannot estimate the jobs together: $a $b $c $d $e}"; fi ;;
+    esac
+  done <<<"$out"
+
+  say "estimate ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE · $DSH_ROMEO_TIME · project $ROMEO_PROJECT${N}"
+  printf '\n' >&2
+  local head="all $count models running"; [ "$count" -gt 1 ] || head="model running"
+  if [ -n "$problem" ]; then
+    printf '  %s%-25s%s %s\n' "$B" "$head" "$N" "${R}unknown${N}: $problem" >&2
+  else
+    color=$G; [ "$(when_of "$latest" "$now")" = now ] || color=$Y
+    printf '  %s%-25s%s %s%s%s\n' "$B" "$head" "$N" "$B$color" "$(when_of "$latest" "$now")" "$N" >&2
+    if [ -n "$all" ] && [ "$all" -gt $((alone_max + 60)) ]; then
+      if [ "$(when_of "$alone_max" "$now")" = now ]; then s="each model alone could start now"; else s="alone, each could start by ~$(clock_of "$alone_max")"; fi
+      printf '  %-25s %s\n' "" "${D}$s, but together they need $whole whole GPU nodes and $idle are free${N}" >&2
     fi
-    out=$(rsh "s=\$($ROMEOLLMTOOL launch $(printf %q "$f") --project-code $(printf %q "$ROMEO_PROJECT") --time $(printf %q "$DSH_ROMEO_TIME") --dry-run --no-wait 2>&1)
-      case \$s in *'#!'*) ;; *) echo \"err \$(printf '%s\n' \"\$s\" | tail -1)\"; exit 0 ;; esac
-      o=\$(printf '%s\n' \"\$s\" | sed -n '/^#!/,\$p' | sbatch --test-only 2>&1)
-      t=\$(printf '%s\n' \"\$o\" | sed -n 's/.* to start at \([0-9T:-]*\) .* on nodes \([^ ]*\) in partition \([^ ]*\).*/\1 \2 \3/p' | head -1)
-      need=\$(printf '%s\n' \"\$s\" | awk -F= '/^#SBATCH --nodes=/ { n = \$2 } /^#SBATCH --gres=gpu:/ { sub(/.*:/, \"\", \$0); g = \$0 } END { n = n ? n : 1; print n * (g ? g : 0), (g >= 4 ? n : 0) }')
-      if [ -n \"\$t\" ]; then set -- \$t; echo \"ok \$(date -d \"\$1\" +%s 2>/dev/null || date -j -f %Y-%m-%dT%H:%M:%S \"\$1\" +%s) \$(date +%s) \$2 \$3 \$need\"; else echo \"err \$(printf '%s\n' \"\$o\" | tail -1)\"; fi" </dev/null) || { lost $?; eta_row "$(label_of "$f")" unknown "$R" "ROMEO did not answer"; continue; }
-    read -r kind a b c d need whole <<<"$out"
-    if [ "$kind" != ok ]; then
-      eta_row "$(label_of "$f")" unknown "$R" "${out#err }"
-      continue
-    fi
-    gpus="$need GPU$([ "$need" = 1 ] || echo s)"
-    when=$(eta_of "$a" "$b")
-    if [ -n "$limit" ] && [ $((${held:-0} + need)) -gt "$limit" ]; then
-      eta_row "$(label_of "$f")" blocked "$Y" "$gpus: over your limit of $limit, your jobs hold $held ${D}(dsh-romeo --stop, or wait for them)${N}"
-    elif [ "$when" = now ]; then
-      eta_row "$(label_of "$f")" now "$G" "${D}$gpus free: $c, partition $d${N}"
-      now_nodes=$((now_nodes + ${whole:-0})); [ "${whole:-0}" = 0 ] || now_names="$now_names${now_names:+ + }$(label_of "$f") $whole"
-    else
-      eta_row "$(label_of "$f")" "${when%% *}" "$Y" "${when#* } ${D}$gpus, $c${N}"
-    fi
-    held=$((${held:-0} + need))  # the next model's job comes on top of this one
-  done
-  # Each estimate is Slurm's for that job alone: together they may not fit in the free nodes.
-  [ "$now_nodes" -le "$idle" ] || note "${Y}together they need $now_nodes whole nodes ($now_names), $idle are idle: one job may wait for the others${N}"
+    if [ -n "$loading" ]; then printf '  %-25s %s\n' "" "${D}then about 12 min for Kimi to load before dsh can use it${N}" >&2
+    elif [ -n "$todo" ]; then printf '  %-25s %s\n' "" "${D}then the model$([ "$count" = 1 ] || echo s) load$([ "$count" != 1 ] || echo s) before dsh can use $([ "$count" = 1 ] && echo it || echo them)${N}" >&2; fi
+  fi
+  printf '\n  %s%-25s %-24s %s%s\n' "$D" MODEL "$([ "$count" -gt 1 ] && echo 'EACH ALONE' || echo START)" GPUS "$N" >&2
+  while IFS='|' read -r a b c d; do [ -z "$a" ] || est_row "$a" "$b" "$c" "$d"; done <<<"$rows"
+  printf '\n' >&2
+  est_row ROMEO "$idle of $total GPU nodes free" "$([ "$idle" -gt 0 ] && echo "$G" || echo "$Y")" "${D}$busy busy, $((total - idle - busy)) down or drained${N}"
+  [ -z "$limit" ] || est_row "your GPUs" "$(awk '$1 == "held" { print $2 }' <<<"$out") of $limit in use" "$D" ""
+  printf '\n' >&2
   note "Slurm's estimate: jobs ending early bring it forward, higher-priority jobs push it back"
-  note "dsh-romeo --launch   start it"
+  if [ -n "$todo" ]; then note "dsh-romeo --launch   start them"; fi
 }
 
 cmd_stop() {  # the jobs of every dsh-romeo model, also those of a choice of models made earlier
@@ -1735,9 +1767,9 @@ main() {
       [ "$launch" -eq 0 ] || die "--launch and --logs do not combine" "dsh-romeo --logs"
       cmd_logs "${2:-}"
       exit 0 ;;
-    --status | --eta | --stop | --setup)
+    --status | --estimate | --eta | --stop | --setup)
       [ "$launch" -eq 0 ] || die "--launch and $1 do not combine" "dsh-romeo $1"
-      case $1 in --status) cmd_status ;; --eta) cmd_eta ;; --stop) cmd_stop ;; --setup) cmd_setup ;; esac
+      case $1 in --status) cmd_status ;; --estimate | --eta) cmd_estimate ;; --stop) cmd_stop ;; --setup) cmd_setup ;; esac
       exit 0 ;;
     --run)
       shift

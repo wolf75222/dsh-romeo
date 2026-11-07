@@ -49,30 +49,41 @@ run --status
 check "status: gateway stopped, no job, tunnel closed" has "gateway  *stopped"
 check "status: no model job" has "DeepSeek-V4.1-Flash-1017  *-  *no job"
 
-# --eta: Slurm's estimate for a job launched now (sbatch --test-only on romeollmtool's dry run).
-run --eta
-check "--eta: free GPU nodes" has "GPU nodes  *9 idle  *4 in use, 2 down"
-check "--eta: DeepSeek starts now" has "DeepSeek-V4.1-Flash-1017  *now  *8 GPUs free: romeo-a\[001-002\], partition short"
-check "--eta: nothing submitted" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs' 2>/dev/null"
-FAKE_ETA=4000 run --eta
-check "--eta: a later start, with the wait" has "DeepSeek-V4.1-Flash-1017  *~[0-9: -]*(in 1 h 6 min)"
-DSH_ROMEO_MODELS=kimi+deepseek DSH_ROMEO_VOICE=on run --eta
-check "--eta: Kimi, 32 GPUs" has "Kimi-K3.1-Pro  *now  *32 GPUs free"
-check "--eta: Whisper, 1 GPU" has "Whisper-large-v3-turbo  *now  *1 GPU free"
-check "--eta: together over the idle nodes" has "together they need 10 whole nodes (Kimi-K3.1-Pro 8 + DeepSeek-V4.1-Flash-1017 2), 9 are idle"
-DSH_ROMEO_MODELS=kimi+deepseek FAKE_IDLE=12 run --eta
-check "--eta: together within the idle nodes, no warning" lacks "together they need"
-DSH_ROMEO_MODELS=kimi+deepseek FAKE_GPU_LIMIT=36 run --eta
-check "--eta: over the GPU limit, blocked" has "DeepSeek-V4.1-Flash-1017  *blocked  *8 GPUs: over your limit of 36, your jobs hold 32"
-FAKE_SBATCH_ERROR="Invalid account or account/partition combination specified" run --eta
-check "--eta: Slurm's refusal shown" has "DeepSeek-V4.1-Flash-1017  *unknown  *sbatch: error: Invalid account"
+# --estimate: when everything would run if launched now (sbatch --test-only on romeollmtool's dry run).
+run --estimate
+check "--estimate: one model, its start" has "model running  *now"
+check "--estimate: then it loads" has "then the model loads before dsh can use it"
+check "--estimate: the model's row" has "DeepSeek-V4.1-Flash-1017  *now  *8 GPUs on 2 nodes"
+check "--estimate: free GPU nodes" has "ROMEO  *9 of 15 GPU nodes free  *4 busy, 2 down or drained"
+check "--estimate: your GPUs" has "your GPUs  *0 of 60 in use"
+check "--estimate: nothing submitted" bash -c "! grep -q . '$FAKE_ROMEO_STATE/jobs' 2>/dev/null"
+FAKE_ETA=4000 run --estimate
+check "--estimate: a later start, with the wait" has "model running  *~[0-9: -]* · in 1 h 6 min"
+DSH_ROMEO_MODELS=kimi+deepseek DSH_ROMEO_VOICE=on run --estimate
+check "--estimate: all together, the latest start" has "all 3 models running  *~[0-9: -]* · in 2 h 0 min"
+check "--estimate: why, in words" has "each model alone could start now, but together they need 10 whole GPU nodes and 9 are free"
+check "--estimate: Kimi's loading" has "then about 12 min for Kimi to load"
+check "--estimate: each alone" has "Kimi-K3.1-Pro  *now  *32 GPUs on 8 nodes"
+check "--estimate: Whisper, 1 GPU" has "Whisper-large-v3-turbo  *now  *1 GPU$"
+DSH_ROMEO_MODELS=kimi+deepseek FAKE_IDLE=12 run --estimate
+check "--estimate: together within the free nodes, now" has "all 2 models running  *now"
+check "--estimate: no why when they fit" lacks "together they need"
+DSH_ROMEO_MODELS=kimi+deepseek FAKE_GPU_LIMIT=36 run --estimate
+check "--estimate: over the GPU limit" has "DeepSeek-V4.1-Flash-1017  *over your GPU limit  *8 GPUs on 2 nodes: your jobs already hold 32 of 36"
+check "--estimate: over the limit, no time given" has "all 2 models running  *unknown: over your limit of 36 GPUs"
+FAKE_SBATCH_ERROR="Invalid account or account/partition combination specified" run --estimate
+check "--estimate: Slurm's refusal shown" has "DeepSeek-V4.1-Flash-1017  *unknown  *sbatch: error: Invalid account"
 echo "900500 dsh-deepseek-v4.1-flash-1017-1m 0" >"$FAKE_ROMEO_STATE/jobs"; echo dsh-deepseek-v4.1-flash-1017-1m >"$FAKE_ROMEO_STATE/pending"
-FAKE_START=2099-01-02T03:04:05 run --eta
-check "--eta: a queued job, its own estimate" has "DeepSeek-V4.1-Flash-1017  *queued  *job 900500 pending, starts ~01-02 03:04 (no free GPU nodes yet)"
-check "--eta: your GPUs counted" has "your GPUs  *8/60"
+FAKE_START=2099-01-02T03:04:05 run --estimate
+check "--estimate: a queued job, its own estimate" has "DeepSeek-V4.1-Flash-1017  *queued  *job 900500 pending, starts ~01-02 03:04 (no free GPU nodes yet)"
+check "--estimate: a queued job, the headline" has "model running  *~01-02 03:04 · in "
+check "--estimate: your GPUs counted" has "your GPUs  *8 of 60 in use"
+check "--estimate: nothing to launch" lacks "dsh-romeo --launch   start them"
 rm -f "$FAKE_ROMEO_STATE/jobs" "$FAKE_ROMEO_STATE/pending"
-run --launch --eta
-check "--launch --eta: refused" has "--launch and --eta do not combine"
+run --eta
+check "--eta: the same as --estimate" has "model running  *now"
+run --launch --estimate
+check "--launch --estimate: refused" has "--launch and --estimate do not combine"
 
 run
 check "start before --setup: fiche missing" has "next: dsh-romeo --setup"
@@ -744,7 +755,7 @@ for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/rustxng-install.s
   out=$(bash -n "$f" 2>&1); check "syntax: $(basename "$f")" test -z "$out"
 done
 if command -v shellcheck >/dev/null; then
-  out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" 2>&1); check "shellcheck" test -z "$out"
+  out=$(shellcheck -S warning "$ROOT/bin/dsh-romeo" "$ROOT/share/estimate.sh" "$ROOT/install.sh" "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" 2>&1); check "shellcheck" test -z "$out"
   out=$(shellcheck -S warning -s bash "$SKILL/scripts/env.sh" 2>&1); check "shellcheck: skill env.sh" test -z "$out"
 fi
 
