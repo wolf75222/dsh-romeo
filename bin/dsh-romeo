@@ -950,14 +950,18 @@ run_desktop() {
 remember_desktop_key() {
   command -v launchctl >/dev/null || return 0
   launchctl setenv ROMEO_LLM_KEY "$ROMEO_LLM_KEY" 2>/dev/null || true
-  (umask 077; printf '%s\n' "$ROMEO_LLM_KEY" | cksum >"$CONFIG_DIR/desktop.key-sum")
+  (umask 077; desktop_state >"$CONFIG_DIR/desktop.key-sum")
 }
 
-# The app already runs with this key and this patch (after a sleep, the tunnel only had to be
+# What the running app was started with, beyond its profile's patch: the key, and the home-level
+# patch it also reads at start (~/.dsh/cordis.patch.yml).
+desktop_state() { { printf '%s\n' "$ROMEO_LLM_KEY"; cat "$HOME/.dsh/cordis.patch.yml" 2>/dev/null; } | cksum; }
+
+# The app already runs with this key and these patches (after a sleep, the tunnel only had to be
 # reopened): no restart, the app keeps its windows.
 desktop_current() {  # $1 the app's patch: 0 when nothing would change
   pgrep -qf "/$DESKTOP_APP.app/Contents/MacOS/" || return 1
-  [ "$(printf '%s\n' "$ROMEO_LLM_KEY" | cksum)" = "$(cat "$CONFIG_DIR/desktop.key-sum" 2>/dev/null)" ] || return 1
+  [ "$(desktop_state)" = "$(cat "$CONFIG_DIR/desktop.key-sum" 2>/dev/null)" ] || return 1
   local tmp rc=1
   tmp=$(mktemp "$1.XXXXXX")
   merge_desktop_patch "$1" >"$tmp" && cmp -s "$tmp" "$1" && rc=0
@@ -1120,6 +1124,11 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
   elif command -v lsof >/dev/null && v=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -Fc 2>/dev/null | sed -n 's/^c//p' | head -1) && [ -n "$v" ] && [ "$v" != ssh ]; then
     fail port "127.0.0.1:$PORT is held by $v: set DSH_ROMEO_PORT"
   else pass port "127.0.0.1:$PORT"; fi
+  if [ "$DSH_ROMEO_WEB" = on ] || [ -n "$DSH_ROMEO_SEARXNG_URL" ]; then
+    v=$(home_web_override)
+    if [ -n "$v" ]; then warn "web row" "$v sets dsh's web search and wins over dsh-romeo's: remove its '- id: web' row"
+    else pass "web row" "no web search of your own in ${DSH_HOME:-$HOME/.dsh}/cordis.patch.yml"; fi
+  fi
   if grep -q 'ROMEO_LLM_KEY:' "${DSH_HOME:-$HOME/.dsh}/.credentials.yaml" 2>/dev/null; then
     warn "dsh key" "a ROMEO_LLM_KEY saved in dsh replaces the gateway's: dsh-romeo removes it"
   else pass "dsh key" "none saved in dsh: it takes the gateway's"; fi
@@ -1328,6 +1337,14 @@ rustxng() {  # $1: install or check. The script's answer (ok, installed, missing
   rsh_stdin "bash -s -- $(printf %q "$RUSTXNG_SHA256") $(printf %q "$RUSTXNG_URL") $1" <"$ROOT/share/rustxng-install.sh" 2>&1 | tail -1
 }
 
+# dsh applies the home-level patch (~/.dsh/cordis.patch.yml) after every profile's: a web row of
+# its own there replaces dsh-romeo's web search, whatever --web says. Prints that file, or nothing.
+home_web_override() {
+  local f=${1:-${DSH_HOME:-$HOME/.dsh}}/cordis.patch.yml
+  [ -f "$f" ] && grep -q -E '^- id: web[[:space:]]*$' "$f" && printf '%s\n' "$f"
+  return 0
+}
+
 ensure_web() {  # never fatal: without it dsh starts, without web search
   WEB_READY=''
   [ "$DSH_ROMEO_WEB" = on ] || return 0
@@ -1390,6 +1407,12 @@ prepare() {  # $1: jobs to launch first. Then the models answer, the tunnel is o
   if [ -n "$VOICE_MODEL" ]; then open_voice_tunnel; else voice_off; fi
   ensure_web
   [ -z "$WEB_READY" ] || say "web search ${G}ready${N} ${D}(RustXNG on the ROMEO login node, over this SSH connection)${N}"
+  local over
+  over=$(home_web_override)
+  if [ -n "$WEB_READY$DSH_ROMEO_SEARXNG_URL" ] && [ -n "$over" ]; then
+    say "${Y}your $over sets dsh's web search itself${N}: it wins over dsh-romeo's"
+    note "remove its '- id: web' row (and the search plugin it inserts) to use dsh-romeo's"
+  fi
 }
 
 # Voice input goes straight to the Whisper job: romeollmtool's gateway cannot relay audio uploads

@@ -241,6 +241,9 @@ if [ "$(uname)" = Darwin ]; then
   HOME=$T/home run --desktop
   check "--desktop again, nothing changed: the app is not restarted" has "already runs on ROMEO"
   check "--desktop again, nothing changed: no quit" test ! -e "$FAKE_ROMEO_STATE/osascript-call"
+  echo "# edited" >>"$T/home/.dsh/cordis.patch.yml"
+  HOME=$T/home run --desktop
+  check "--desktop after an edit of ~/.dsh/cordis.patch.yml: the app is restarted" grep -q "quit app" "$FAKE_ROMEO_STATE/osascript-call"
   rm -f "$FAKE_ROMEO_STATE/app-running"
   FAKE_OPEN_FAIL=1 HOME=$T/home run --desktop
   check "--desktop: open refused, macOS's reason" has "macOS did not open DeepSeek Harness: LSOpenURLsWithRole"
@@ -606,6 +609,11 @@ out=$(cd "$T" && FAKE_ROMEO_UNREACHABLE=1 node --input-type=module -e "
 check "web plugin: a closed SSH connection, said" has "SSH connection to ROMEO is closed"
 DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run --status
 check "status: web search row" has "web  *on  *RustXNG on the ROMEO login node"
+mkdir -p "$T/dsh-home-web"; printf '%s\n' '- id: web' '  config: { searchProvider: searxng }' >"$T/dsh-home-web/cordis.patch.yml"
+DSH_HOME=$T/dsh-home-web DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run headless "override"
+check "--web on: a web row in ~/.dsh/cordis.patch.yml, said" has "cordis.patch.yml sets dsh's web search itself"
+DSH_HOME=$T/dsh-home-web DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run --doctor
+check "--doctor: the overriding web row, a warning" has "web row  *warning"
 rm -f "$FAKE_ROMEO_HOME/.dsh-romeo/rustxng/rustxng-v0.28.0-x86_64-unknown-linux-musl"
 DSH_ROMEO_RUSTXNG_SHA256=0000 DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off run headless "bad sum"
 check "--web on, checksum mismatch: not installed, said" has "web search unavailable: RustXNG on ROMEO: checksum mismatch"
