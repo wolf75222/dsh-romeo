@@ -23,7 +23,7 @@
 #   dsh-romeo --doctor            check this computer, SSH, ROMEO, the fiches and the key
 #   dsh-romeo --logs [-f]         the model job's log (-f: follow it, Ctrl-C to quit)
 #   dsh-romeo --setup             copy the fiches to ROMEO again (--launch does it when they changed)
-#   dsh-romeo --update            install the latest dsh-romeo (asks first); checked once a day at start
+#   dsh-romeo --update            install the latest dsh-romeo (asks first); each start checks too
 #
 #   --completion bash|zsh   -V, --version   -h, --help
 #
@@ -1542,8 +1542,7 @@ remember() {  # $1 variable, $2 value, $3 file: set, check, and keep for the nex
 # ---------------------------------------------------------------- updates
 
 # dsh-romeo is a git clone of its repository: an update is a fast-forward of it, then install.sh
-# (it keeps your settings). The start checks once a day, asks, and never installs on its own.
-UPDATE_STAMP=$CONFIG_DIR/update-checked
+# (it keeps your settings). Each start checks, asks, and never installs on its own.
 in_time() {  # in_time SECONDS CMD...: CMD, stopped after SECONDS (macOS has no timeout(1))
   local secs=$1 pid watcher rc; shift
   "$@" & pid=$!
@@ -1566,7 +1565,6 @@ cmd_update() {  # $1: --yes to install without asking
   git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "$ROOT is not a git clone: download dsh-romeo again" "git clone https://github.com/wolf75222/dsh-romeo"
   up=$(update_upstream) || die "the branch of $ROOT follows no remote branch" "git -C '$ROOT' branch --set-upstream-to=origin/main"
   update_fetch 30 || die "cannot reach the repository of dsh-romeo (network?)" "git -C '$ROOT' fetch"
-  mkdir -p "$CONFIG_DIR" && date +%s >"$UPDATE_STAMP"
   new=$(update_pending "$up")
   if [ -z "$new" ]; then
     say "${G}ok${N}, dsh-romeo is up to date ($(git -C "$ROOT" rev-parse --short HEAD))"
@@ -1590,18 +1588,14 @@ cmd_update() {  # $1: --yes to install without asking
   ${DSH_ROMEO_INSTALL:-"$ROOT/install.sh"} --yes >&2 || die "install.sh failed after the update (the new code is in place)" "'$ROOT/install.sh'"
   say "${G}ok${N}, dsh-romeo updated to $(git -C "$ROOT" rev-parse --short HEAD)"
 }
-# At start, once a day, in a terminal: a few seconds of fetch at most, then the offer. Off with
-# DSH_ROMEO_UPDATE_CHECK=off. $@: the command line, run again after an update.
+# At each start, in a terminal: 4 seconds of fetch at most (nothing when offline), then the offer,
+# no by default. Off with DSH_ROMEO_UPDATE_CHECK=off. $@: the command line, run again after an update.
 update_offer() {
   [ "${DSH_ROMEO_UPDATE_CHECK:-on}" != off ] && [ -t 0 ] && [ -t 1 ] && [ -t 2 ] || return 0
   git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || return 0
-  local last now up new answer
-  last=$(cat "$UPDATE_STAMP" 2>/dev/null || echo 0); now=$(date +%s)
-  [[ "$last" =~ ^[0-9]+$ ]] || last=0
-  [ $((now - last)) -ge 86400 ] || return 0
-  mkdir -p "$CONFIG_DIR" && echo "$now" >"$UPDATE_STAMP"
+  local up new answer
   up=$(update_upstream) || return 0
-  update_fetch 5 || return 0
+  update_fetch 4 || return 0
   new=$(update_pending "$up")
   [ -n "$new" ] || return 0
   printf '%s' "${B}dsh-romeo${N} an update is available ($(printf '%s\n' "$new" | wc -l | tr -d ' ') change(s), latest: $(printf '%s\n' "$new" | head -1 | cut -d' ' -f2- | cut -c1-60)). Install it now? [y/N] " >&2

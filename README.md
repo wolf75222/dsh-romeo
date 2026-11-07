@@ -25,7 +25,7 @@ Then run `dsh-romeo --launch` (in a new terminal if `install.sh` said `~/.local/
 | `dsh-romeo --status` | what runs on ROMEO, and why the last job ended |
 | `dsh-romeo --stop` | stops the model jobs: they use your project's GPU hours while they run |
 | `dsh-romeo --doctor` | when something does not work: checks each piece and says what to type |
-| `dsh-romeo --update` | installs the latest dsh-romeo (shows the changes, asks first); dsh-romeo also checks once a day when it starts |
+| `dsh-romeo --update` | installs the latest dsh-romeo (shows the changes, asks first); dsh-romeo also checks each time it starts and offers it (no by default) |
 
 Options go before the command and are remembered for the next runs:
 

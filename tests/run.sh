@@ -604,6 +604,19 @@ check "--update --yes: says it" has "ok.*dsh-romeo updated to"
 echo local >>"$U/clone/README.md"; echo more >"$U/other/NEWS"; G -C "$U/other" commit -qam more; git -C "$U/other" push -q origin HEAD:main 2>/dev/null
 out=$(DSH_ROMEO_INSTALL=true "$U/clone/bin/dsh-romeo" --update --yes </dev/null 2>&1)
 check "--update: local changes stop it" has "has local changes"
+# The offer at start, in a terminal (script(1) gives one): no by default, yes updates then runs again.
+if [ "$(uname)" = Darwin ]; then
+  git -C "$U/clone" checkout -q README.md
+  echo again >"$U/other/NEWS"; G -C "$U/other" commit -qam again; git -C "$U/other" push -q origin HEAD:main 2>/dev/null
+  out=$( (sleep 2; printf 'n\n') | DSH_ROMEO_CONFIG_DIR=$T/upd-conf script -q /dev/null "$U/clone/bin/dsh-romeo" --status 2>&1 | tr -d '\r')
+  check "start: an update is offered" has "an update is available"
+  check "start: no by default, nothing installed" has "later: dsh-romeo --update"
+  out=$( (sleep 2; printf 'y\n') | DSH_ROMEO_INSTALL=true DSH_ROMEO_CONFIG_DIR=$T/upd-conf script -q /dev/null "$U/clone/bin/dsh-romeo" --status 2>&1 | tr -d '\r')
+  check "start: yes updates" has "dsh-romeo updated to"
+  check "start: and it is the latest" test "$(git -C "$U/clone" rev-parse HEAD)" = "$(git -C "$U/clone" rev-parse origin/main)"
+  out=$( (sleep 2; printf 'n\n') | DSH_ROMEO_CONFIG_DIR=$T/upd-conf script -q /dev/null "$U/clone/bin/dsh-romeo" --status 2>&1 | tr -d '\r')
+  check "start: up to date, nothing asked" bash -c "! grep -q 'an update is available' <<<\"\$1\"" _ "$out"
+fi
 check "--update: --help lists it" bash -c "'$ROOT/bin/dsh-romeo' --help 2>&1 | grep -q -- '--update'"
 
 # The romeo skill: frontmatter dsh accepts, links that resolve, and its env.sh against the fake ROMEO.
