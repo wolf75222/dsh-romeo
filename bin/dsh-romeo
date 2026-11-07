@@ -5,8 +5,8 @@
 #   dsh-romeo --launch            start the model on ROMEO, wait until it answers, open dsh
 #   dsh-romeo                     open dsh on the model job already running
 #   dsh-romeo --status            what runs on ROMEO, and why the last job ended
-#   dsh-romeo --estimate [--watch] when everything would run if launched now (Slurm's estimate);
-#                                 --watch: checks every minute, notifies when it can start now
+#   dsh-romeo --estimate          when everything would run if launched now, and why it waits;
+#                                 --watch: checks every minute, notifies when it can start
 #   dsh-romeo --history [DAYS]    past model jobs: waited, loaded, ran, how they ended
 #   dsh-romeo --usage             GPU hours: this month (you, the project), what runs now
 #   dsh-romeo --top               live: agents at work, tokens/s, KV cache, time left, per job
