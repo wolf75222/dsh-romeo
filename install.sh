@@ -195,7 +195,7 @@ DSH_ROMEO_CONFIG_DIR=$CONFIG_DIR "$ROOT/bin/dsh-romeo" --setup | sed 's/^/    /'
 # Installed off in the dsh profiles that dsh-romeo opens (web, and the desktop app's): turn them on
 # in the Plugins page. The app manages its profile with its own dsh, of its own version.
 if [ "$PLUGINS" = 1 ]; then
-  step "Optional dsh plugins (off; turn them on in dsh's Plugins page)"
+  step "Optional dsh plugins (off unless said on; turn them on or off in dsh's Plugins page)"
   "$ROOT/share/optional-plugins.sh" web dsh | sed 's/^/    web: /' \
     || printf '%s\n' "    ${R}warning:${N} some plugins were not installed in the web profile"
   APP_DSH=''
