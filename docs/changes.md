@@ -2,6 +2,10 @@
 
 [README](../README.md) · [Usage](usage.md) · [Other clients](clients.md) · [Tuning](tuning.md) · [How it works](how-it-works.md) · [Troubleshooting](troubleshooting.md) · **Changes** · [Development](development.md)
 
+## 2026-11-10
+
+- Prompt completion: a suggestion with the cursor near the end of a line wraps like typed text (first line from the cursor, then from the box's left edge) instead of a one-word column spilling over the box and its buttons; never drawn past the window's bottom. The dsh-romeo badge shrinks with a narrow window.
+
 ## 2026-11-07
 
 - `--estimate` says why it waits (free GPU nodes and how many are down, the project's 60 GPUs shared by its members and when enough comes back, other projects' jobs first by fair-share, your own limit), the longest job that starts now, the agent's model alone when that starts sooner, a coming ROMEO stop and what fits before it (`--launch` warns too), when dsh can use the models (your own loading times); `--watch` notifies when everything can start.

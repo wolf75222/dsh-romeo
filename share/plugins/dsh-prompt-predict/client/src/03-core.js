@@ -393,7 +393,14 @@
             if (rr && (rr.width > 0 || rr.height > 0)) caret = rr;
           }
         } catch { /* 选区不可用时退回编辑器起点 */ }
-        var left = caret ? Math.max(caret.left, r.left + padLeft) : r.left + padLeft;
+        // The box is the editor's content area, from its left edge: only the first line starts at
+        // the caret (text-indent), the next ones wrap back to the left edge as typed text does. A box
+        // starting at the caret was as narrow as what is left of the line (80 px at the end of one):
+        // one word per line, spilling over the box's edge and the buttons under it.
+        var contentLeft = r.left + padLeft;
+        var contentRight = (typeof r.right === "number" ? r.right : r.left + r.width) - padRight;
+        var left = contentLeft;
+        var indent = caret ? Math.min(Math.max(0, caret.left - contentLeft), Math.max(0, contentRight - contentLeft - 24)) : 0;
         var top = caret ? Math.max(caret.top, r.top + parseFloat(cs.paddingTop || "0")) : r.top + parseFloat(cs.paddingTop || "0");
         // The caret spans the glyphs (font height), the ghost's line box the editor's line-height:
         // lift it by the half-leading so both baselines meet.
@@ -403,7 +410,10 @@
           var next = {
             left: left,
             top: top,
-            width: r.width > 0 ? Math.max(80, (typeof r.right === "number" ? r.right : r.left + r.width) - padRight - left) : 0,
+            width: r.width > 0 ? Math.max(80, contentRight - contentLeft) : 0,
+            indent: indent,
+            // Never past the window's bottom: a long suggestion is cut there, not drawn off-screen.
+            maxHeight: typeof window.innerHeight === "number" && window.innerHeight > 0 ? Math.max(24, window.innerHeight - top - 8) : null,
             fontFamily: cs.fontFamily,
             fontSize: cs.fontSize,
             lineHeight: cs.lineHeight,
@@ -469,6 +479,9 @@
         style: {
           position: "fixed", left: pos.left + shift.x, top: pos.top + shift.y, zIndex: 60, margin: 0, padding: 0, border: 0, background: "transparent", inset: "auto",
           width: pos.width || undefined,
+          textIndent: pos.indent || 0,
+          maxHeight: pos.maxHeight || undefined, overflow: pos.maxHeight ? "hidden" : undefined,
+          boxSizing: "border-box",
           pointerEvents: "none",
           fontFamily: pos.fontFamily, fontSize: pos.fontSize, lineHeight: pos.lineHeight, fontWeight: pos.fontWeight,
           // 长建议在原位折行显示，完整可见；只有采纳才写进 Lexical。

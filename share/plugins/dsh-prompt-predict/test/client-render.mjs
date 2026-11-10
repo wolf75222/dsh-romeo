@@ -2242,6 +2242,27 @@ function makeLiveProps(draft, inserted) {
     JSON.stringify(inserted.at(-1) || null));
 }
 
+// Caret near the end of a line: the ghost must wrap like typed text (first line from the caret,
+// the next ones from the box's left edge), not in a column as narrow as what is left of the line.
+{
+  const inst = setup();
+  inst.env.editor.textContent = 'Corrige';
+  const rect = { left: 470, top: 200, width: 0, height: 18, right: 470, bottom: 218 };
+  inst.env.window.getSelection = () => ({
+    rangeCount: 1, anchorNode: inst.env.editor,
+    getRangeAt: () => ({ cloneRange: () => ({ getClientRects: () => [rect], getBoundingClientRect: () => rect }) }),
+  });
+  const view = mount(inst.react, inst.registered['conversation.composer.dock'].Component, () => makeLiveProps('Corrige', []));
+  await view.settle(10);
+  const ghost = find(view.tree, (n) => n.props && n.props['data-prompt-predict-ghost'] === 'true')[0];
+  const st = ghost?.props?.style ?? {};
+  check('光标靠右时 ghost 占满整行宽度、首行缩进到光标（不再挤成一列）',
+    st.left === 100 && st.width === 400 && st.textIndent === 370,
+    `left=${st.left} width=${st.width} textIndent=${st.textIndent}`);
+  delete inst.env.window.getSelection;
+  inst.env.editor.textContent = '';
+}
+
 // Live ghost: DOM changes keep it, typing through it shrinks it without a request, Esc holds it off.
 {
   const live = { draft: 'Corrige', rev: 1 };

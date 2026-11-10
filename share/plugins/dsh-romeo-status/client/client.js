@@ -43,7 +43,7 @@ window.__ModuleLoader__.load({
       return h("span", {
         title: items.map(function (i) { return i.text; }).join("\n"),
         style: {
-          display: "inline-flex", alignItems: "center", gap: 6, maxWidth: 420, height: 24, padding: "0 8px",
+          display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "min(420px, 34vw)", minWidth: 0, flex: "0 1 auto", height: 24, padding: "0 8px",
           borderRadius: 12, fontSize: 12, lineHeight: "24px", whiteSpace: "nowrap", overflow: "hidden",
           color: "inherit", opacity: 0.85, background: "color-mix(in srgb, " + COLORS[worst] + " 12%, transparent)",
           border: "1px solid color-mix(in srgb, " + COLORS[worst] + " 35%, transparent)", verticalAlign: "middle",
