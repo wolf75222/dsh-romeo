@@ -4,6 +4,8 @@
 
 ## 2026-11-10
 
+- `--run opencode` with opencode 2: adds `--standalone`. opencode 2 goes through a background service, and one already running (started by the app or a plain `opencode`) never sees dsh-romeo's config: no `romeo` provider in the model list.
+- install.sh: a plugin that dsh would not install says why (dsh's exit code, or installed but missing from the profile) instead of an empty `()`.
 - Prompt completion: a suggestion with the cursor near the end of a line wraps like typed text (first line from the cursor, then from the box's left edge) instead of a one-word column spilling over the box and its buttons; never drawn past the window's bottom. The dsh-romeo badge shrinks with a narrow window.
 
 ## 2026-11-07

@@ -62,7 +62,17 @@ fits() {
 }
 
 add() {  # $1: spec; 0 when it is now a dependency of the profile
-  (cd "$WORK" && "$CLI" plugin --profile "$PROFILE" add "$1" </dev/null) >"$WORK/log" 2>&1 && installed "${1%@*}"
+  local code=0
+  (cd "$WORK" && "$CLI" plugin --profile "$PROFILE" add "$1" </dev/null) >"$WORK/log" 2>&1 || code=$?
+  [ "$code" = 0 ] && installed "${1%@*}" && return 0
+  # Why, for the message: dsh's own words, or what it did without a word.
+  if [ "$code" != 0 ]; then printf '\n%s plugin add exited %s\n' "$CLI" "$code" >>"$WORK/log"
+  else printf '\n%s plugin add succeeded, but %s is not in %s\n' "$CLI" "${1%@*}" "$MANIFEST" >>"$WORK/log"; fi
+  return 1
+}
+
+why() {  # the first error line of the last add, else its last line
+  grep -m1 -i -E 'error|refus|incompatible|requires' "$WORK/log" || grep -v '^[[:space:]]*$' "$WORK/log" | tail -1
 }
 
 version_of() { node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version' "$DIR/node_modules/$1/package.json" 2>/dev/null; }
@@ -82,7 +92,7 @@ while read -r spec what; do
       [ "$was_on" = 1 ] || turn_off "$name"
       echo "$name: $old replaced by dsh-romeo's build ($([ "$was_on" = 1 ] && echo on || echo off))"
     else
-      echo "$name: dsh-romeo's build could not replace $old ($(grep -m1 -i -E 'error|refus' "$WORK/log" || tail -1 "$WORK/log"))"
+      echo "$name: dsh-romeo's build could not replace $old ($(why))"
       status=1
     fi
     continue
@@ -116,7 +126,7 @@ while read -r spec what; do
     turn_off "$name"
     echo "$name: $spec refused by dsh $DSH_VERSION, installed $(version_of "$name") instead, off (newer than the version reviewed for dsh-romeo)"
   else
-    echo "$name: not installed ($(grep -m1 -i -E 'error|refus|incompatible|requires' "$WORK/log" || tail -1 "$WORK/log"))"
+    echo "$name: not installed ($(why))"
     status=1
   fi
 done <"$LIST"

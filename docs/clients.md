@@ -6,7 +6,7 @@ The gateway forwards every `/v1/...` request to vLLM, which speaks three APIs: O
 
 | Client | Command | Through |
 |---|---|---|
-| [opencode](https://opencode.ai) | `dsh-romeo --run opencode` | a `romeo` provider in `~/.config/dsh-romeo/opencode.json`, given by `OPENCODE_CONFIG` and made the default model |
+| [opencode](https://opencode.ai) | `dsh-romeo --run opencode` | a `romeo` provider in `~/.config/dsh-romeo/opencode.json`, given by `OPENCODE_CONFIG` and made the default model; opencode 2 gets `--standalone` (its background service, started without that config, would not show `romeo`) |
 | [Codex CLI](https://github.com/openai/codex) | `dsh-romeo --run codex` | a `romeo` provider passed as `-c` options, on the Responses API |
 | [Claude Code](https://code.claude.com) | `dsh-romeo --run claude` | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and the model for every alias |
 | [Aider](https://aider.chat) | `dsh-romeo --run aider` | `OPENAI_API_BASE`, `OPENAI_API_KEY` and `AIDER_MODEL=openai/<model>` |

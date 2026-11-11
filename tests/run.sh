@@ -209,6 +209,21 @@ check "opencode.json: valid JSON" python3 -c "import json, sys; json.load(open(s
 check "opencode.json: default model" grep -q '"model": "romeo/dsh-deepseek-v4.1-flash-1017-1m"' "$oc"
 check "opencode.json: key from the environment" grep -q '{env:ROMEO_LLM_KEY}' "$oc"
 check "opencode.json: no key written" bash -c "! grep -q test-key '$oc'"
+# opencode 2 uses its background service, started without OPENCODE_CONFIG: --run adds --standalone.
+OCB=$T/oc-bin; mkdir -p "$OCB"
+cat >"$OCB/opencode" <<'SH'
+#!/bin/bash
+[ "${1:-}" = --version ] && { echo "opencode v${FAKE_OC_VERSION:-2.2.7}"; exit 0; }
+echo "oc-args:[$*]"
+SH
+chmod +x "$OCB/opencode"
+oc_run() { out=$(PATH="$OCB:$PATH" FAKE_OC_VERSION=$1 "$ROOT/bin/dsh-romeo" --run "$OCB/opencode" "${@:2}" 2>&1); }
+oc_run 2.2.7; check "--run opencode 2: the TUI on a private server" has "oc-args:\[--standalone\]"
+oc_run 2.2.7 run hi; check "--run opencode 2 run: --standalone after the subcommand" has "oc-args:\[run --standalone hi\]"
+oc_run 2.2.7 models; check "--run opencode 2 models: --standalone" has "oc-args:\[models --standalone\]"
+oc_run 2.2.7 upgrade; check "--run opencode 2 upgrade: left as is" has "oc-args:\[upgrade\]"
+oc_run 2.2.7 --server http://x; check "--run opencode 2 --server: left as is" has "oc-args:\[--server http://x\]"
+oc_run 1.19.5; check "--run opencode 1: no --standalone" has "oc-args:\[\]"
 
 run --run codex exec "hello"
 check "--run codex: provider" grep -q "arg: model_provider=romeo" "$FAKE_ROMEO_STATE/codex-call"

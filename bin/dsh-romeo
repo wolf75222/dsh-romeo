@@ -1142,6 +1142,19 @@ run_client() {  # exec a client with the endpoint in its environment (and in its
       shift
       exec "$cmd" -c model_provider=romeo -c model="$MODEL" \
         -c "model_providers.romeo={ name = \"ROMEO\", base_url = \"$BASE_URL\", env_key = \"ROMEO_LLM_KEY\", wire_api = \"responses\" }" "$@" ;;
+    opencode)  # opencode 2 goes through its background service, started without OPENCODE_CONFIG
+      # (by the app, or an earlier opencode): the romeo provider would not be there. --standalone
+      # runs a private server with this environment. Only the subcommands that take it.
+      local cmd=$1 sub=${2:-}
+      case $("$cmd" --version 2>/dev/null) in *[!0-9.]1.* | 1.* | *[!0-9.]0.* | 0.* | '') exec "$@" ;; esac
+      case " $* " in *' --standalone '* | *' --server '* | *' --server='*) exec "$@" ;; esac
+      shift
+      case $sub in
+        run | mini | models | stats | session | api | auth) shift; exec "$cmd" "$sub" --standalone "$@" ;;
+        '' | -* | */* | .*) exec "$cmd" --standalone "$@" ;;
+      esac
+      [ ! -d "$sub" ] || exec "$cmd" --standalone "$@"
+      exec "$cmd" "$@" ;;
   esac
   exec "$@"
 }
