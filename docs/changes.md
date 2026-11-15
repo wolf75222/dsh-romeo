@@ -2,6 +2,11 @@
 
 [README](../README.md) · [Usage](usage.md) · [Other clients](clients.md) · [Tuning](tuning.md) · [How it works](how-it-works.md) · [Troubleshooting](troubleshooting.md) · **Changes** · [Development](development.md)
 
+## 2026-11-15
+
+- `--desktop` on Linux: opens [dsh-desktop](https://github.com/gnoooo/dsh-linux-app), a native window around dsh's Web UI, on the ROMEO model instead of the Web UI; macOS keeps the DeepSeek Harness app as it was. dsh-desktop is a separate install (`install.sh` does not install it): dsh-romeo looks for it on `PATH`, then in `~/.local/bin` (`DSH_ROMEO_DESKTOP_CMD` overrides), writes the Web UI's overlay, clears a `ROMEO_LLM_KEY` saved in dsh's credentials, then opens `dsh-desktop --dsh <dsh> --patch <overlay> --workspace <the directory dsh-romeo was started in>` with the key in its environment and returns. The app is detached from the terminal; its output is in `~/.config/dsh-romeo/dsh-desktop.log` and its backend log in `~/.local/state/dsh-desktop/dsh-web.log`. A missing app or display is said before any job starts, and `--launch --desktop` works. An app already running keeps its old key and settings (close it and run `dsh-romeo --desktop` again); `--switch` rewrites the overlay, so press `Ctrl+Shift+R` in the window or reopen it.
+- The offline tests cover the Linux `--desktop` path: launch arguments (`--dsh`, `--patch`, `--workspace`), the overlay, the key in the environment, a missing app, the `~/.local/bin` fallback and `DSH_ROMEO_DESKTOP_CMD`, `--launch --desktop` and `--switch`.
+
 ## 2026-11-10
 
 - `--run opencode` with opencode 2: adds `--standalone`. opencode 2 goes through a background service, and one already running (started by the app or a plain `opencode`) never sees dsh-romeo's config: no `romeo` provider in the model list.
