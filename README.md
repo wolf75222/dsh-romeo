@@ -25,7 +25,7 @@ Then run `dsh-romeo --launch` (in a new terminal if `install.sh` said `~/.local/
 | `dsh-romeo --status` | what runs on ROMEO, and why the last job ended |
 | `dsh-romeo --estimate [--watch]` | when everything would be running if you launched now, and why it waits; `--watch` notifies you when it can start |
 | `dsh-romeo --top` | live: agents at work, tokens/s, KV cache, time left, per job |
-| `dsh-romeo --history`, `--usage` | past jobs (waited, loaded, ran, how they ended); GPU hours this month |
+| `dsh-romeo --history`, `--usage` | past jobs (waited, loaded, ran, how they ended); GPU hours this month, and what the month's dsh tokens would have cost at API prices |
 | `dsh-romeo --models X --switch` | other models in the desktop app while it runs |
 | `dsh-romeo --stop` | stops the model jobs: they use your project's GPU hours while they run |
 | `dsh-romeo --doctor [--fix]` | when something does not work: checks each piece and says what to type; `--fix` repairs what it can |
