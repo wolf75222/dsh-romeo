@@ -314,6 +314,103 @@ if [ "$(uname)" = Darwin ]; then
   run --launch
 fi
 
+# --desktop on Linux: dsh-desktop, the native app, instead of the macOS DeepSeek Harness app.
+# --desktop opens it and returns; the fake records one argument per line, so a path with spaces is
+# still one argument.
+if [ "$(uname)" = Linux ]; then
+  LH=$T/home-linux
+  mkdir -p "$LH"
+  export DISPLAY=${DISPLAY:-:0}   # the preflight needs a graphical session; no window is opened here
+  desktop_arg() {  # the argument after $1 in the fake dsh-desktop's call
+    awk -v flag="$1" 'found { sub(/^arg: /, ""); print; exit } $0 == "arg: " flag { found = 1 }' \
+      "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  }
+  wait_desktop() {  # --desktop returns before the app writes its call file
+    local _
+    for _ in $(seq 1 50); do [ -f "$FAKE_ROMEO_STATE/dsh-desktop-call" ] && return 0; sleep 0.1; done
+    return 1
+  }
+  rm -f "$FAKE_ROMEO_STATE/dsh-desktop-call" "$FAKE_ROMEO_STATE/open-call" "$FAKE_ROMEO_STATE/app-running"
+  HOME=$LH run --desktop
+  check "--desktop (Linux): opens dsh-desktop" wait_desktop
+  check "--desktop (Linux): returns at once" test "$code" = 0
+  check "--desktop (Linux): the dsh it was told to use" test "$(desktop_arg --dsh)" = "$FAKE/dsh"
+  check "--desktop (Linux): the overlay as --patch" test "$(desktop_arg --patch)" = "$DSH_ROMEO_CONFIG_DIR/dsh.patch.yml"
+  check "--desktop (Linux): the caller's directory as --workspace" test "$(desktop_arg --workspace)" = "$PWD"
+  check "--desktop (Linux): the key in the app's environment" grep -qx "key: test-key" "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  check "--desktop (Linux): the overlay written for dsh web" bash -c "grep -q 'provider: romeo' '$DSH_ROMEO_CONFIG_DIR/dsh.patch.yml' && grep -q 'model: dsh-deepseek-v4.1-flash-1017-1m' '$DSH_ROMEO_CONFIG_DIR/dsh.patch.yml'"
+  check "--desktop (Linux): no key written in the overlay" bash -c "! grep -q test-key '$DSH_ROMEO_CONFIG_DIR/dsh.patch.yml'"
+  check "--desktop (Linux): not the macOS app" test ! -e "$FAKE_ROMEO_STATE/open-call"
+  check "--desktop (Linux): its output log" test -f "$DSH_ROMEO_CONFIG_DIR/dsh-desktop.log"
+  check "--desktop (Linux): says where its output goes" has "its output:"
+  # An app already running keeps its old key and settings: say so, do not start a second backend.
+  touch "$FAKE_ROMEO_STATE/app-running"
+  rm -f "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  HOME=$LH run --desktop
+  check "--desktop (Linux): an app already running is said" has "already running"
+  check "--desktop (Linux): no second launch" test ! -e "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  rm -f "$FAKE_ROMEO_STATE/app-running"
+  # DSH_ROMEO_DESKTOP_CMD wins over PATH.
+  printf '#!/bin/sh\ntouch "$FAKE_ROMEO_STATE/desktop-override"\nexec "%s" "$@"\n' "$FAKE/dsh-desktop" >"$T/desktop-override"
+  chmod +x "$T/desktop-override"
+  rm -f "$FAKE_ROMEO_STATE/desktop-override" "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  DSH_ROMEO_DESKTOP_CMD=$T/desktop-override HOME=$LH run --desktop
+  check "--desktop (Linux): DSH_ROMEO_DESKTOP_CMD is used" test -f "$FAKE_ROMEO_STATE/desktop-override"
+  check "--desktop (Linux): the override got the arguments" test "$(desktop_arg --workspace)" = "$PWD"
+  # ~/.local/bin/dsh-desktop, when dsh-desktop is not on PATH.
+  mkdir -p "$T/home-linux-local/.local/bin" "$T/bin-no-desktop"
+  cp "$FAKE/dsh-desktop" "$T/home-linux-local/.local/bin/dsh-desktop"
+  for f in "$FAKE"/*; do [ "$(basename "$f")" = dsh-desktop ] || ln -sf "$f" "$T/bin-no-desktop/"; done
+  rm -f "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  PATH=$T/bin-no-desktop:/usr/bin:/bin HOME=$T/home-linux-local run --desktop
+  check "--desktop (Linux): ~/.local/bin fallback" wait_desktop
+  check "--desktop (Linux): the fallback exits 0" test "$code" = 0
+  # A missing app is said before anything starts on ROMEO.
+  jobs_before_linux=$(wc -l <"$FAKE_ROMEO_STATE/jobs")
+  rm -f "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  DSH_ROMEO_DESKTOP_CMD=$T/no-such-dsh-desktop HOME=$LH run --desktop
+  check "--desktop (Linux) without the app: says so" has "dsh-desktop is not installed"
+  check "--desktop (Linux) without the app: names the override" has "DSH_ROMEO_DESKTOP_CMD=$T/no-such-dsh-desktop"
+  check "--desktop (Linux) without the app: what to install" has "https://github.com/gnoooo/dsh-linux-app"
+  check "--desktop (Linux) without the app: exit 1" test "$code" = 1
+  check "--desktop (Linux) without the app: no app started" test ! -e "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  check "--desktop (Linux) without the app: no job submitted" test "$(wc -l <"$FAKE_ROMEO_STATE/jobs")" = "$jobs_before_linux"
+  # dsh-desktop shlex-splits --dsh: a path with a space must stay one argument.
+  cp "$FAKE/dsh" "$T/dsh with space"
+  chmod +x "$T/dsh with space"
+  rm -f "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  DSH_ROMEO_DSH="$T/dsh with space" HOME=$LH run --desktop
+  check "--desktop (Linux): a dsh path with a space" wait_desktop
+  check "--desktop (Linux): the space path is one argument" test "$(desktop_arg --dsh)" = "$(printf '%q' "$T/dsh with space")"
+  # A workspace with a space is passed whole.
+  mkdir -p "$T/work space"
+  rm -f "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  out=$(cd "$T/work space" && HOME=$LH "$ROOT/bin/dsh-romeo" --desktop 2>&1); code=$?
+  check "--desktop (Linux): a workspace with a space" wait_desktop
+  check "--desktop (Linux): the space workspace is one argument" test "$(desktop_arg --workspace)" = "$T/work space"
+  # A detached app needs a display; say so before any ROMEO work.
+  out=$(env -u DISPLAY -u WAYLAND_DISPLAY -u BROADWAY_DISPLAY HOME=$LH "$ROOT/bin/dsh-romeo" --desktop 2>&1); code=$?
+  check "--desktop (Linux) without a display: says so" has "graphical session"
+  check "--desktop (Linux) without a display: exit 1" test "$code" = 1
+  # --launch --desktop: the jobs first, then the app.
+  cp "$FAKE_ROMEO_STATE/jobs" "$T/jobs-before-linux"
+  rm -f "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  HOME=$LH run --launch --desktop
+  check "--launch --desktop (Linux): a job is submitted first" has "submitted"
+  check "--launch --desktop (Linux): then dsh-desktop runs" wait_desktop
+  check "--launch --desktop (Linux): the app still gets the key" grep -qx "key: test-key" "$FAKE_ROMEO_STATE/dsh-desktop-call"
+  cp "$T/jobs-before-linux" "$FAKE_ROMEO_STATE/jobs"   # the job this test submitted
+  # --switch while the app runs: the overlay is rewritten; dsh-desktop reads it at start.
+  echo "900710 dsh-kimi-k3.1-pro-1m 0" >>"$FAKE_ROMEO_STATE/jobs"
+  touch "$FAKE_ROMEO_STATE/app-running"
+  HOME=$LH DSH_ROMEO_MODELS=kimi+deepseek run --switch
+  check "--switch (Linux): dsh-desktop restarted for it" has "dsh-desktop reads its settings at start only"
+  check "--switch (Linux): the overlay on Kimi" grep -q "dsh-kimi-k3.1-pro-1m" "$DSH_ROMEO_CONFIG_DIR/dsh.patch.yml"
+  rm -f "$FAKE_ROMEO_STATE/app-running"
+  grep -v ' dsh-kimi-k3.1-pro-1m ' "$FAKE_ROMEO_STATE/jobs" >"$FAKE_ROMEO_STATE/jobs.new"
+  mv "$FAKE_ROMEO_STATE/jobs.new" "$FAKE_ROMEO_STATE/jobs"
+fi
+
 # A refused forward with the port free: once more on a new connection, then ssh's reason.
 rm -f "$DSH_ROMEO_SOCKET.target"   # no tunnel to reuse: the forward is asked for
 # (here the fake gateway itself listens on the port: an lsof that sees nothing, as on a real computer)

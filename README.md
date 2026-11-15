@@ -26,7 +26,7 @@ Then run `dsh-romeo --launch` (in a new terminal if `install.sh` said `~/.local/
 | `dsh-romeo --estimate [--watch]` | when everything would be running if you launched now, and why it waits; `--watch` notifies you when it can start |
 | `dsh-romeo --top` | live: agents at work, tokens/s, KV cache, time left, per job |
 | `dsh-romeo --history`, `--usage` | past jobs (waited, loaded, ran, how they ended); GPU hours this month |
-| `dsh-romeo --models X --switch` | other models in the desktop app while it runs |
+| `dsh-romeo --models X --switch` | other models in the desktop app (macOS: without restarting it; Linux: restart `dsh-desktop`, which reads its settings at start) |
 | `dsh-romeo --stop` | stops the model jobs: they use your project's GPU hours while they run |
 | `dsh-romeo --doctor [--fix]` | when something does not work: checks each piece and says what to type; `--fix` repairs what it can |
 | `dsh-romeo --clean` | deletes job logs older than 30 days on ROMEO (asks first) |
@@ -40,7 +40,7 @@ Options go before the command and are remembered for the next runs:
 
 Both models read images: paste a screenshot or attach a picture in dsh, nothing to turn on.
 
-Other clients: `--desktop` (the [desktop app](https://github.com/deepseek-ai/deepseek-harness/releases), macOS), `headless "a task"` (for scripts), `--run opencode` (or `codex`, `claude`, `aider`...), `--serve` (only the endpoint, for an editor). `dsh-romeo --help` lists everything; [Usage](docs/usage.md) explains each command.
+Other clients: `--desktop` (the [DeepSeek Harness desktop app](https://github.com/deepseek-ai/deepseek-harness/releases) on macOS; on Linux, [dsh-desktop](https://github.com/gnoooo/dsh-linux-app), a separate install that opens and returns), `headless "a task"` (for scripts), `--run opencode` (or `codex`, `claude`, `aider`...), `--serve` (only the endpoint, for an editor). `dsh-romeo --help` lists everything; [Usage](docs/usage.md) explains each command.
 
 ## Docs
 

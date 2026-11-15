@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Fake native Linux dsh-desktop (https://github.com/gnoooo/dsh-linux-app): records how dsh-romeo
+# started it. One argument per line, so a path with spaces is still one argument.
+{
+  printf 'arg: %s\n' "$@"
+  printf 'cwd: %s\n' "$PWD"
+  printf 'key: %s\n' "${ROMEO_LLM_KEY:-}"
+} >"$FAKE_ROMEO_STATE/dsh-desktop-call"

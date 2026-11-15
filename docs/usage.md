@@ -22,7 +22,7 @@ git clone https://github.com/wolf75222/dsh-romeo.git ~/dsh-romeo && ~/dsh-romeo/
 | `--no-plugins` | skips the optional dsh plugins below |
 | `--yes` | no questions |
 
-`install.sh` also installs a few third-party dsh plugins, **turned off**, in the dsh profiles dsh-romeo opens (`web`, and the desktop app's): turn them on or off in dsh's **Plugins** page, under *Installed plugins*. A plugin you already have is left as you set it, unless its installed version no longer fits your dsh (its declared dsh range, as dsh-sidenote's `<0.2.3`): then it moves to the plugin's latest version, on or off as it was. A pinned version that your dsh refuses also falls back to the latest one. Run `./install.sh` again after updating dsh. The list, with pinned versions read and checked on dsh 0.2.2-rc.1, is [share/plugins.txt](../share/plugins.txt):
+`install.sh` also installs a few third-party dsh plugins, **turned off**, in the dsh profiles dsh-romeo opens (`web`, and the macOS desktop app's; dsh-desktop on Linux uses `web`): turn them on or off in dsh's **Plugins** page, under *Installed plugins*. A plugin you already have is left as you set it, unless its installed version no longer fits your dsh (its declared dsh range, as dsh-sidenote's `<0.2.3`): then it moves to the plugin's latest version, on or off as it was. A pinned version that your dsh refuses also falls back to the latest one. Run `./install.sh` again after updating dsh. The list, with pinned versions read and checked on dsh 0.2.2-rc.1, is [share/plugins.txt](../share/plugins.txt):
 
 | Plugin | |
 |---|---|
@@ -47,7 +47,7 @@ Host romeo
 |---|---|
 | `dsh-romeo --launch` | starts the model (one job, 2 nodes, 8 GH200), waits until it answers (8 to 13 min in our tests), opens the dsh Web UI |
 | `dsh-romeo` | opens the Web UI while the job runs |
-| `dsh-romeo --desktop` | opens the DeepSeek Harness desktop app (macOS) on the ROMEO model instead of the Web UI: it writes the provider into the app's `~/.dsh/profiles/desktop/cordis.patch.yml`, keeping the settings the app saves there (theme, permissions, account...; a copy of the file before dsh-romeo's first run is in `cordis.patch.yml.before-dsh-romeo`) and restarts the app if it runs, since it reads the key at start only. Combines with `--launch` |
+| `dsh-romeo --desktop` | opens a desktop app on the ROMEO model instead of the Web UI. **macOS**: the DeepSeek Harness app; dsh-romeo writes the provider into the app's `~/.dsh/profiles/desktop/cordis.patch.yml`, keeping the settings the app saves there (theme, permissions, account...; a copy of the file before dsh-romeo's first run is in `cordis.patch.yml.before-dsh-romeo`) and restarts the app if it runs, since it reads the key at start only. **Linux**: [dsh-desktop](https://github.com/gnoooo/dsh-linux-app), a native window around dsh's Web UI, a separate install (`install.sh` does not install it): dsh-romeo writes the Web UI's overlay, clears a `ROMEO_LLM_KEY` saved in dsh's credentials, then opens `dsh-desktop --dsh <dsh> --patch <overlay> --workspace <the directory dsh-romeo was started in>` with the key in its environment and returns. `dsh-desktop` is looked up on `PATH`, then in `~/.local/bin` (`DSH_ROMEO_DESKTOP_CMD` overrides). The app is detached from the terminal: its output is in `~/.config/dsh-romeo/dsh-desktop.log`, its backend log in `~/.local/state/dsh-desktop/dsh-web.log`; if no window appears, run `dsh-desktop --check`. A missing app or graphical display is said before any job starts; the tunnel stays until `--stop`. Combines with `--launch` |
 | `dsh-romeo headless "run the tests and fix them"` | one task, the answer printed on stdout: for scripts |
 | `dsh-romeo web --port 3000` | any dsh profile and argument pass through |
 | `dsh-romeo --launch 3` | three jobs: the gateway spreads the agents over them |
@@ -60,12 +60,12 @@ Host romeo
 | `dsh-romeo --history [DAYS]` | the model jobs of the last 14 days (or DAYS): waited, loaded, ran, GPU hours, how each ended (stopped, idle, relayed, time limit, failed while loading...), then each model's typical wait and loading time. From Slurm's accounting and the jobs' logs ([share/history.sh](../share/history.sh)) |
 | `dsh-romeo --usage` | GPU hours this month: yours, the project's (Slurm's accounting, about an hour late), a cap if Slurm has one, what the running jobs cost so far and to their end, dsh-romeo's jobs over 30 days by model |
 | `dsh-romeo --clean [--yes]` | romeollmtool's job logs older than 30 days on ROMEO (`DSH_ROMEO_CLEAN_DAYS`), never a queued job's, and your ROMEO home's use; asks before deleting (`--yes`: does not ask). It keeps 30 days since `--history` and `--estimate` read the loading times in them |
-| `dsh-romeo --models X --switch` | other models while the desktop app runs: the jobs (add `--launch` to start them), then the app's patch rewritten; the app reloads it by itself, new sessions use the new models, no restart (unless the key or its plugins changed). The Web UI reads its settings at start only: restart it |
+| `dsh-romeo --models X --switch` | other models while the desktop app runs: the jobs (add `--launch` to start them), then the app's patch rewritten; on macOS the app reloads it by itself, new sessions use the new models, no restart (unless the key or its plugins changed). On Linux, `dsh-desktop`'s backend reads the overlay at start: press `Ctrl+Shift+R` in its window (or close it and run `dsh-romeo --desktop` again). The Web UI reads its settings at start only: restart it |
 | `dsh-romeo --stop` | cancels every dsh-romeo model job (also of an earlier `--models`) and closes the tunnel |
 | `dsh-romeo --doctor [--fix]` | checks this computer (Node.js, dsh, the tunnel's port), SSH, romeollmtool, the project, the fiches on ROMEO, the key and the gateway; exits 1 if a check fails; changes nothing, unless `--fix`: it repairs what it can (copies the fiches again, starts the gateway, removes a dead connection's socket or a ROMEO key saved in dsh, installs RustXNG or dsh) |
 | `dsh-romeo --completion bash\|zsh` | shell completion of the options, models and dsh profiles: `eval "$(dsh-romeo --completion zsh)"` in `~/.zshrc` (`bash`: `~/.bashrc`) |
 | `dsh-romeo --logs [-f]` | the last 40 lines of the agent's model job log (`-f` follows it) |
-| `dsh-romeo --version`, `--help` | `-V`, `-h`: the versions of dsh-romeo, dsh, the app's dsh and Node.js |
+| `dsh-romeo --version`, `--help` | `-V`, `-h`: the versions of dsh-romeo, dsh, the macOS app's dsh and Node.js |
 | `dsh-romeo --setup` | copies the models' fiches and the job clean-up to ROMEO again; `--launch` also does it, for the fiches it launches, when this version's differ |
 | `dsh-romeo --update` | fetches dsh-romeo's repository, lists the new changes and, once you say yes, fast-forwards your clone and runs `install.sh` again (it keeps your settings); `--update --yes` does not ask. Each time dsh-romeo starts (`--launch`, `--desktop`, the Web UI...; in a terminal, 4 s of check at most, nothing when offline) it offers the update itself, no by default; `DSH_ROMEO_UPDATE_CHECK=off` turns that off |
 | `dsh-romeo --models kimi ...` | the models, kept for the next runs (see below); options go in any order |
@@ -129,7 +129,7 @@ On your computer instead, with Docker:
 
 ## Settings
 
-`install.sh` writes most of them to `~/.config/dsh-romeo/config`; a variable set in the environment wins. `--models` and `--voice` are remembered in `~/.config/dsh-romeo/models` and `voice`. Rarely needed: `DSH_ROMEO_POLL` (seconds between checks while a model loads, or while the voice watcher waits for the Whisper job), `DSH_ROMEO_NOTIFY=off` (no bell or desktop notification when a model is ready after a wait of `DSH_ROMEO_NOTIFY_AFTER`, 60 s), `NO_COLOR` (no colors), `DSH_ROMEO_SOCKET` (the SSH control socket), `DSH_ROMEO_DSH`, `DSH_ROMEO_DESKTOP_APP`, `DSH_ROMEO_DESKTOP_DSH` (which dsh and app to use), `DSH_ROMEO_CONFIG_DIR`, `ROMEOLLMTOOL`.
+`install.sh` writes most of them to `~/.config/dsh-romeo/config`; a variable set in the environment wins. `--models` and `--voice` are remembered in `~/.config/dsh-romeo/models` and `voice`. Rarely needed: `DSH_ROMEO_POLL` (seconds between checks while a model loads, or while the voice watcher waits for the Whisper job), `DSH_ROMEO_NOTIFY=off` (no bell or desktop notification when a model is ready after a wait of `DSH_ROMEO_NOTIFY_AFTER`, 60 s), `NO_COLOR` (no colors), `DSH_ROMEO_SOCKET` (the SSH control socket), `DSH_ROMEO_DSH`, `DSH_ROMEO_DESKTOP_APP`, `DSH_ROMEO_DESKTOP_DSH` (which dsh and app to use), `DSH_ROMEO_DESKTOP_CMD` (Linux: which `dsh-desktop`), `DSH_ROMEO_CONFIG_DIR`, `ROMEOLLMTOOL`.
 
 | Variable | Default | |
 |---|---|---|
@@ -144,6 +144,7 @@ On your computer instead, with Docker:
 | `DSH_ROMEO_PORT` | `11318` | local port of the tunnel |
 | `DSH_ROMEO_SEARXNG_URL` | empty | SearXNG for web search, e.g. `http://127.0.0.1:8888` |
 | `DSH_ROMEO_GATEWAY` | `standard` | `fast`: the patched gateway (see [Tuning](tuning.md)) |
+| `DSH_ROMEO_DESKTOP_CMD` | empty | Linux: the `dsh-desktop` command `--desktop` opens (default: `dsh-desktop` on `PATH`, then `~/.local/bin/dsh-desktop`); one path or name, no arguments |
 | `DSH_ROMEO_FAST_PORT`, `DSH_ROMEO_FAST_PROCS` | `11320`, `4` | its port on the login node and its processes |
 
 ## Cost
