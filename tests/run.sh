@@ -773,6 +773,7 @@ check "--doctor: the weights checked" has "weights .*ok .*DeepSeek-V4.1-Flash-10
 for f in "$ROOT/bin/dsh-romeo" "$ROOT/install.sh" "$ROOT/share/rustxng-install.sh" "$ROOT"/share/{estimate,maint,history,clean,top,watch}.sh "$ROOT/share/optional-plugins.sh" "$ROOT/share/gateway/start.sh" "$HERE/run.sh" "$SKILL/scripts/env.sh"; do
   out=$(bash -n "$f" 2>&1); check "syntax: $(basename "$f")" test -z "$out"
 done
+out=$(node --check "$ROOT/share/usage-cost.mjs" 2>&1); check "syntax: usage-cost.mjs" test -z "$out"
 # ---------------------------------------------------------------- planning and running the jobs
 DS=dsh-deepseek-v4.1-flash-1017-1m
 export DSH_ROMEO_MODELS=deepseek DSH_ROMEO_VOICE=off   # whatever earlier tests remembered
@@ -839,16 +840,67 @@ check "--history 0: refused" has "--history takes a number of days"
 run --estimate
 check "--estimate: loading from your starts" has "ready in dsh  *~[0-9:]* · in 8 min (DeepSeek-V4.1-Flash-1017 loads in ~8 min, your last 1 start)"
 
-# --usage
-run --usage
+# --usage: GPU hours, then the month's dsh tokens at the providers' API prices (from a fixture of
+# dsh's session projection cache, so the real ~/.dsh is never read).
+usage_home=$T/dsh-usage
+usage_proj=$usage_home/storages/session_projcache/sessions
+mkdir -p "$usage_proj"
+now_ms=$(($(date +%s) * 1000))
+old_ms=$((now_ms - 40 * 86400 * 1000))
+usage_session() {  # $1 file, $2 provider, $3 model, $4 input, $5 output, $6 epoch ms
+  printf '{"version":7,"record":{"identity":{"formatVersion":4,"createdAt":%s},"rows":{"modelSelection":{"ver":3,"val":{"lastUsed":{"provider":"%s","model":"%s"}}},"tokenUsage":{"ver":2,"val":{"totals":{"uncachedInputTokens":%s,"outputTokens":%s,"cacheReadTokens":0,"cacheWriteTokens":0}}},"sessionListMetadata":{"ver":1,"val":{"lastPromptAt":%s}}}}}\n' \
+    "$6" "$2" "$3" "$4" "$5" "$6" >"$usage_proj/$1.json"
+}
+usage_session deepseek romeo dsh-deepseek-v4.1-flash-1017-1m 10000000 1000000 "$now_ms"
+usage_session kimi romeo dsh-kimi-k3.1-pro-1m 2000000 100000 "$now_ms"
+usage_session old romeo dsh-deepseek-v4.1-flash-1017-1m 100000000 10000000 "$old_ms"
+usage_session other deepseek deepseek-flash 50000000 5000000 "$now_ms"
+# No lastPromptAt: its createdAt must date it.
+printf '{"version":7,"record":{"identity":{"formatVersion":4,"createdAt":%s},"rows":{"modelSelection":{"ver":3,"val":{"lastUsed":{"provider":"romeo","model":"dsh-deepseek-v4.1-flash-1017-1m"}}},"tokenUsage":{"ver":2,"val":{"totals":{"uncachedInputTokens":1000000,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0}}}}}}\n' "$now_ms" >"$usage_proj/fallback.json"
+echo 'not json' >"$usage_proj/corrupt.json"
+DSH_HOME=$usage_home run --usage
 check "--usage: yours" has "you  *353 GPU-h  *32 % of the project"
 check "--usage: the project" has "project r000000  *1075 GPU-h  *2 members used GPUs this month"
 check "--usage: no cap in Slurm" has "limit  *none in Slurm"
 check "--usage: dsh-romeo's jobs" has "dsh-romeo, 30 days  *16 GPU-h  *DeepSeek 16"
+check "--usage: tokens cost, both models" has 'tokens, this month  *~\$9.50  * 13M in, 1.1M out'
+check "--usage: DeepSeek's tokens" has 'DeepSeek-V4.1-Flash-1017  *~\$4.50  *11M in, 1M out at \$0.30/\$1.20 per M'
+check "--usage: Kimi's tokens" has 'Kimi-K3.1-Pro  *~\$5.00  *2M in, 100K out at \$2/\$10 per M'
+check "--usage: last month's sessions excluded" lacks "111M in"
+check "--usage: other providers excluded" lacks "61M in"
+check "--usage: a corrupt cache skipped" has 'tokens, this month  *~\$9.50'
 echo "900200 $DS $(date +%s)" >"$FAKE_ROMEO_STATE/jobs"
-FAKE_GPU_MINUTES_CAP=120000 FAKE_ELAPSED=1:00:00 FAKE_LEFT=7:00:00 run --usage
+FAKE_GPU_MINUTES_CAP=120000 FAKE_ELAPSED=1:00:00 FAKE_LEFT=7:00:00 DSH_HOME=$usage_home run --usage
 check "--usage: an hours cap" has "limit  *2000 GPU-h  *53 % used"
 check "--usage: running now" has "running now  *8 GPUs  *8 GPU-h so far, 64 GPU-h if they run to the end"
+check "--usage: tokens with a running job" has 'tokens, this month  *~\$9.50'
+# One model: no total row, the model's own price in the note.
+one_home=$T/dsh-usage-one
+mkdir -p "$one_home/storages/session_projcache/sessions"
+cp "$usage_proj/deepseek.json" "$one_home/storages/session_projcache/sessions/"
+DSH_HOME=$one_home run --usage
+check "--usage: one model, its price" has 'DeepSeek-V4.1-Flash-1017  *~\$4.20  *10M in, 1M out at \$0.30/\$1.20 per M'
+check "--usage: one model, no total row" lacks "tokens, this month"
+DSH_HOME=$one_home DSH_ROMEO_PRICE_DEEPSEEK=1/2/0/0 run --usage
+check "--usage: a price override" has 'DeepSeek-V4.1-Flash-1017  *~\$12.00  *10M in, 1M out at \$1/\$2 per M'
+DSH_HOME=$one_home DSH_ROMEO_PRICE_DEEPSEEK=1/2/0 run --usage
+check "--usage: a bad price refused" has "DSH_ROMEO_PRICE_DEEPSEEK: four numbers"
+check "--usage: a bad price exits 1" test "$code" = 1
+DSH_HOME=$usage_home DSH_ROMEO_PRICE_KIMI=1/2/0/0 run --usage
+check "--usage: a Kimi price override" has 'Kimi-K3.1-Pro  *~\$2.20  *2M in, 100K out at \$1/\$2 per M'
+DSH_HOME=$usage_home DSH_ROMEO_PRICE_KIMI=x/2/0/0 run --usage
+check "--usage: a bad Kimi price refused" has "DSH_ROMEO_PRICE_KIMI: four numbers"
+check "--usage: a bad Kimi price exits 1" test "$code" = 1
+check "--usage: the Kimi hint's default" has "DSH_ROMEO_PRICE_KIMI=2/10/0.2/0"
+# Cached input is priced at its own rate when a gateway reports it.
+cache_home=$T/dsh-usage-cache
+mkdir -p "$cache_home/storages/session_projcache/sessions"
+printf '{"version":7,"record":{"identity":{"formatVersion":4,"createdAt":%s},"rows":{"modelSelection":{"ver":3,"val":{"lastUsed":{"provider":"romeo","model":"dsh-deepseek-v4.1-flash-1017-1m"}}},"tokenUsage":{"ver":2,"val":{"totals":{"uncachedInputTokens":0,"outputTokens":0,"cacheReadTokens":10000000,"cacheWriteTokens":0}}},"sessionListMetadata":{"ver":1,"val":{"lastPromptAt":%s}}}}}\n' "$now_ms" "$now_ms" >"$cache_home/storages/session_projcache/sessions/cached.json"
+DSH_HOME=$cache_home run --usage
+check "--usage: cached input at its own rate" has 'DeepSeek-V4.1-Flash-1017  *~\$0.06  *10M in, 0 out at \$0.30 in, \$1.20 out, \$0.006 cache read, \$0 cache write per M'
+DSH_HOME=$T/dsh-usage-none run --usage
+check "--usage: no dsh sessions, no API price" lacks "per M"
+check "--usage: no dsh sessions, GPU hours still" has "you  *353 GPU-h"
 
 # --top: one snapshot when not in a terminal, with tokens/s from two rounds.
 mkdir -p "$FAKE_ROMEO_HOME/.romeollmtool/stats"; echo '{"fiche_id": "x"}' >"$FAKE_ROMEO_HOME/.romeollmtool/stats/requests-$(date +%Y-%m-%d).jsonl"

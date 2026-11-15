@@ -2,6 +2,10 @@
 
 [README](../README.md) · [Usage](usage.md) · [Other clients](clients.md) · [Tuning](tuning.md) · [How it works](how-it-works.md) · [Troubleshooting](troubleshooting.md) · **Changes** · [Development](development.md)
 
+## 2026-11-15
+
+- `--usage`: the tokens your dsh sessions used this month, priced at the providers' listed API rates (DeepSeek-V4.1-Flash-1017 $0.30/$1.20 per million input/output tokens, Kimi-K3.1-Pro $2/$10), one row per model and a total when both are used: what the same work would have cost with a paid API subscription instead of ROMEO's GPUs. Subagents included, from dsh's session records; sessions from other clients or providers are not counted, and a session spanning two months counts whole in the month of its last prompt. `DSH_ROMEO_PRICE_DEEPSEEK` and `DSH_ROMEO_PRICE_KIMI` change the rates.
+
 ## 2026-11-10
 
 - `--run opencode` with opencode 2: adds `--standalone`. opencode 2 goes through a background service, and one already running (started by the app or a plain `opencode`) never sees dsh-romeo's config: no `romeo` provider in the model list.

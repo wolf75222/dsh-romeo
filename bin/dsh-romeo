@@ -8,7 +8,8 @@
 #   dsh-romeo --estimate          when everything would run if launched now, and why it waits;
 #                                 --watch: checks every minute, notifies when it can start
 #   dsh-romeo --history [DAYS]    past model jobs: waited, loaded, ran, how they ended
-#   dsh-romeo --usage             GPU hours: this month (you, the project), what runs now
+#   dsh-romeo --usage             GPU hours: this month (you, the project), what runs now,
+#                                 and what this month's dsh tokens would have cost at API prices
 #   dsh-romeo --top               live: agents at work, tokens/s, KV cache, time left, per job
 #   dsh-romeo --stop              stop the model jobs (they use GPU hours) and the tunnel
 #
@@ -101,6 +102,10 @@ fi
 : "${DSH_ROMEO_GATEWAY:=standard}"                       # standard, or fast: no 100-stream cap, affinity
 : "${DSH_ROMEO_FAST_PORT:=11320}"                        # port of the fast gateway on the login node
 : "${DSH_ROMEO_FAST_PROCS:=4}"                           # its processes
+# --usage prices the month's dsh tokens at the providers' listed API rates, USD per million tokens
+# (input/output/cache read/cache write): DeepSeek-V4.1-Flash-1017 and Kimi-K3.1-Pro, 2026-11-15.
+: "${DSH_ROMEO_PRICE_DEEPSEEK:=0.30/1.20/0.006/0}"
+: "${DSH_ROMEO_PRICE_KIMI:=2/10/0.2/0}"
 : "${ROMEOLLMTOOL:=/apps/romeotools/romeollmtool/romeollmtool}"
 
 HOST=$ROMEO_SSH_HOST
@@ -1431,6 +1436,72 @@ when_of() {  # $1 epoch, $2 now: "now", "~21:40 · in 1 h 12 min"
   else echo "$c · in $(((d + 59) / 60)) min"; fi
 }
 est_row() { printf '  %-25s %s%-30s%s %s\n' "$1" "$3" "$2" "$N" "$4" >&2; }
+
+# The tokens dsh's sessions used this month, at the providers' listed API prices: a reminder of what
+# they would have cost outside ROMEO. dsh keeps each session's provider-reported totals (subagents
+# included) in its projection cache; share/usage-cost.mjs sums them by model family.
+fmt_tokens() {  # $1 tokens: "171M", "1.5M", "950K", "12K"
+  LC_ALL=C awk -v n="${1:-0}" 'BEGIN {
+    if (n >= 1e9) { s = sprintf("%.1f", n / 1e9); sub(/\.0$/, "", s); printf "%sB", s }
+    else if (n >= 1e6) { s = sprintf("%.1f", n / 1e6); sub(/\.0$/, "", s); printf "%sM", s }
+    else if (n >= 1e3) printf "%.0fK", n / 1e3
+    else printf "%d", n
+  }'
+}
+fmt_usd() {  # $1 micro-dollars: "~$4.20", "~$0.003", "<$0.001"
+  LC_ALL=C awk -v m="${1:-0}" 'BEGIN {
+    c = m / 1e6
+    if (m > 0 && c < 0.001) printf "<$0.001"
+    else if (m > 0 && c < 0.01) printf "~$%.3f", c
+    else printf "~$%.2f", c
+  }'
+}
+prices_of() {  # $1 family: "input output cacheRead cacheWrite" USD per million tokens, checked
+  local p var default
+  case $1 in
+    kimi) p=$DSH_ROMEO_PRICE_KIMI var=DSH_ROMEO_PRICE_KIMI default=2/10/0.2/0 ;;
+    *) p=$DSH_ROMEO_PRICE_DEEPSEEK var=DSH_ROMEO_PRICE_DEEPSEEK default=0.30/1.20/0.006/0 ;;
+  esac
+  LC_ALL=C awk -F/ '
+    NF != 4 { exit 1 }
+    { for (i = 1; i <= 4; i++) if ($i !~ /^[0-9]+([.][0-9]+)?$/) exit 1; print $1, $2, $3, $4 }
+  ' <<<"$p" || die "$var: four numbers (input/output/cacheRead/cacheWrite, USD per million tokens), not '$p'" "$var=$default dsh-romeo --usage"
+}
+usage_cost() {  # the month's dsh tokens, priced at the providers' API rates (one row per family)
+  local home=${DSH_HOME:-$HOME/.dsh} since rows class model input cr cw output prices pin pout pcr pcw note_prices
+  local micro total=0 tin=0 tout=0 n=0 outside=': what they would have cost outside ROMEO'
+  command -v node >/dev/null 2>&1 || return 0
+  [ -f "$ROOT/share/usage-cost.mjs" ] || return 0
+  since=$(iso_epoch "$(date +%Y-%m-01T00:00:00)") || return 0
+  since=$((since * 1000))
+  rows=$(node "$ROOT/share/usage-cost.mjs" "$home" "$since" 2>/dev/null) || return 0
+  [ -n "$rows" ] || return 0
+  while IFS=$'\t' read -r class model input cr cw output; do
+    [ -n "$class" ] || continue
+    prices=$(prices_of "$class") || exit 1
+    read -r pin pout pcr pcw <<<"$prices"
+    micro=$(LC_ALL=C awk -v i="$input" -v r="$cr" -v w="$cw" -v o="$output" -v pi="$pin" -v pr="$pcr" -v pw="$pcw" -v po="$pout" \
+      'BEGIN { printf "%.0f", i * pi + r * pr + w * pw + o * po }')
+    total=$((total + micro)); tin=$((tin + input + cr + cw)); tout=$((tout + output)); n=$((n + 1))
+  done <<<"$rows"
+  [ "$n" -gt 0 ] || return 0
+  [ "$n" -eq 1 ] || est_row "tokens, this month" "$(fmt_usd "$total")" "" "${D}$(fmt_tokens "$tin") in, $(fmt_tokens "$tout") out at the providers' API prices${outside}${N}"
+  while IFS=$'\t' read -r class model input cr cw output; do
+    [ -n "$class" ] || continue
+    prices=$(prices_of "$class") || exit 1
+    read -r pin pout pcr pcw <<<"$prices"
+    micro=$(LC_ALL=C awk -v i="$input" -v r="$cr" -v w="$cw" -v o="$output" -v pi="$pin" -v pr="$pcr" -v pw="$pcw" -v po="$pout" \
+      'BEGIN { printf "%.0f", i * pi + r * pr + w * pw + o * po }')
+    if [ "$cr" -gt 0 ] || [ "$cw" -gt 0 ]; then note_prices="\$$pin in, \$$pout out, \$$pcr cache read, \$$pcw cache write per M"
+    else note_prices="\$$pin/\$$pout per M"; fi
+    if [ "$n" -eq 1 ]; then
+      est_row "$(label_of "$model")" "$(fmt_usd "$micro")" "" "${D}$(fmt_tokens "$((input + cr + cw))") in, $(fmt_tokens "$output") out at ${note_prices}${outside}${N}"
+    else
+      est_row "$(label_of "$model")" "$(fmt_usd "$micro")" "" "${D}$(fmt_tokens "$((input + cr + cw))") in, $(fmt_tokens "$output") out at ${note_prices}${N}"
+    fi
+  done <<<"$rows"
+}
+
 dur_of() {  # $1 seconds: "1 h 12 min", "14 min"
   if [ "$1" -lt 3600 ]; then echo "$((($1 + 30) / 60)) min"
   elif [ $(($1 % 3600 / 60)) = 0 ]; then echo "$(($1 / 3600)) h"
@@ -1713,7 +1784,8 @@ cmd_history() {
 }
 
 # GPU hours: yours and the project's this month (Slurm's accounting, sreport), the limit if Slurm
-# has one, what your running jobs cost so far and to their end, and dsh-romeo's jobs over 30 days.
+# has one, what your running jobs cost so far and to their end, dsh-romeo's jobs over 30 days, and
+# the month's dsh tokens at the providers' API prices (usage_cost).
 cmd_usage() {
   connect
   [ -n "$ROMEO_PROJECT" ] || die "no project code (ROMEO_PROJECT in $CONFIG_DIR/config)" "$ROOT/install.sh --project r123456"
@@ -1748,6 +1820,7 @@ cmd_usage() {
     line="$line${line:+, }$(label_of "$f" | cut -d- -f1) $gh"
   done
   [ -z "$line" ] || est_row "dsh-romeo, 30 days" "$(awk -v now="$(date +%s)" '$1 == "job" && $5 != "-" { e = ($6 == "-") ? now : $6; s += $9 * (e - $5) } END { printf "%.0f", s / 3600 }' <<<"$hist") GPU-h" "" "${D}$line${N}"
+  usage_cost
   printf '\n' >&2
   note "Slurm's accounting is updated about every hour"
 }
