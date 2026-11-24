@@ -179,6 +179,21 @@ run headless "fix the tests"
 check "job running: straight to dsh" lacks submitted
 check "headless and its task pass through" grep -q "args: headless --patch .* fix the tests" "$FAKE_ROMEO_STATE/dsh-call"
 
+# --no-open: dsh's Web UI without a browser, remembered (--open: with it again).
+run --no-open web
+check "--no-open: dsh web gets it" grep -q "args: web --patch .* --no-open" "$FAKE_ROMEO_STATE/dsh-call"
+check "--no-open: remembered" grep -qx on "$DSH_ROMEO_CONFIG_DIR/no-open"
+run --no-open --status
+check "--status: says the remembered --no-open" has "--no-open on"
+run headless x
+check "--no-open: another profile gets none" bash -c "! grep -q -- '--no-open' '$FAKE_ROMEO_STATE/dsh-call'"
+run --open web
+check "--open: dsh web without the flag" bash -c "! grep -q -- '--no-open' '$FAKE_ROMEO_STATE/dsh-call'"
+check "--open: remembered" grep -qx off "$DSH_ROMEO_CONFIG_DIR/no-open"
+out=$(DSH_ROMEO_NO_OPEN=on "$ROOT/bin/dsh-romeo" web 2>&1)
+check "--no-open: the environment wins for one run" grep -q "args: web --patch .* --no-open" "$FAKE_ROMEO_STATE/dsh-call"
+check "--no-open: the environment writes nothing" grep -qx off "$DSH_ROMEO_CONFIG_DIR/no-open"
+
 DSH_ROMEO_SEARXNG_URL=http://127.0.0.1:8888 run
 check "overlay: SearXNG when configured" grep -q "baseURL: 'http://127.0.0.1:8888'" "$overlay"
 check "overlay: SearXNG plugin path" grep -q "name: $ROOT/share/web-search-searxng.mjs" "$overlay"

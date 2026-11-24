@@ -2,6 +2,10 @@
 
 [README](../README.md) · [Usage](usage.md) · [Other clients](clients.md) · [Tuning](tuning.md) · [How it works](how-it-works.md) · [Troubleshooting](troubleshooting.md) · **Changes** · [Development](development.md)
 
+## 2026-11-24
+
+- `--no-open` (remembered, `--open` undoes it): dsh's Web UI without opening a browser, for a computer whose browser is elsewhere or that has none; the URL is still printed. dsh's own `--no-open` only reached it as `dsh-romeo web --no-open`: `dsh-romeo --no-open` and `dsh-romeo --launch --no-open` answered "unknown option --no-open", and nothing said how to avoid the browser. It goes to the `web` profile only (other apps have no such flag), once, and `DSH_ROMEO_NO_OPEN=on` wins for one run; `--help`, `--status` and `--doctor` show the choice.
+
 ## 2026-11-10
 
 - `--run opencode` with opencode 2: adds `--standalone`. opencode 2 goes through a background service, and one already running (started by the app or a plain `opencode`) never sees dsh-romeo's config: no `romeo` provider in the model list.
