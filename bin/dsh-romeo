@@ -12,10 +12,11 @@
 #   dsh-romeo --top               live: agents at work, tokens/s, KV cache, time left, per job
 #   dsh-romeo --stop              stop the model jobs (they use GPU hours) and the tunnel
 #
-# Options (before the command, in any order; --models, --voice and --web are remembered)
+# Options (before the command, in any order; --models, --voice, --web and --no-open are remembered)
 #   --models deepseek|kimi|kimi+deepseek   the model; kimi+deepseek: DeepSeek runs the subagents
 #   --voice on|off                voice input in dsh, Whisper on ROMEO (1 GPU)
 #   --web on|off                  web search in dsh, RustXNG on the ROMEO login node (no GPU)
+#   --no-open [on|off]            dsh's Web UI without opening a browser (--open: with it again)
 #   --launch N                    N DeepSeek jobs at once (1-8), for many agents
 #
 # Other ways in
@@ -84,11 +85,20 @@ if [ -z "$VOICE_ENV" ] && [ -s "$VOICE_FILE" ]; then
     *) rm -f "$VOICE_FILE" ;;
   esac
 fi
+NO_OPEN_ENV=${DSH_ROMEO_NO_OPEN:-}
+NO_OPEN_FILE=$CONFIG_DIR/no-open
+if [ -z "$NO_OPEN_ENV" ] && [ -s "$NO_OPEN_FILE" ]; then
+  case $(cat "$NO_OPEN_FILE") in
+    on | off) DSH_ROMEO_NO_OPEN=$(cat "$NO_OPEN_FILE") ;;
+    *) rm -f "$NO_OPEN_FILE" ;;
+  esac
+fi
 : "${ROMEO_SSH_HOST:=romeo}"                             # ssh alias of a ROMEO login node
 : "${ROMEO_PROJECT:=}"                                   # Slurm project code charged for the model jobs
 : "${DSH_ROMEO_MODELS:=deepseek}"                        # deepseek, kimi, or kimi+deepseek (DeepSeek subagents)
 : "${DSH_ROMEO_VOICE:=off}"                              # on: voice input, Whisper on ROMEO (1 GPU)
 : "${DSH_ROMEO_WEB:=off}"                                # on: web search, RustXNG on the ROMEO login node
+: "${DSH_ROMEO_NO_OPEN:=off}"                            # on: dsh's Web UI opens no browser (--no-open)
 : "${DSH_ROMEO_FICHE:=}"                                 # a fiche of your own for the agent's model
 : "${DSH_ROMEO_TIME:=08:00:00}"                          # model job duration (max 24:00:00)
 : "${DSH_ROMEO_IDLE_STOP:=60}"                           # minutes without requests before the jobs stop; off
@@ -140,7 +150,7 @@ usage() {  # the header comment, up to "What it does", and the remembered choice
   local b='' n=''
   if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then b=$'\e[1m' n=$'\e[0m'; fi
   awk -v b="$b" -v n="$n" 'NR > 1 && /^# What it does/ { exit } NR > 1 { sub(/^# ?/, ""); if (/^[A-Z]/ && NR > 3) $0 = b $0 n; print }' "$src"
-  printf '  now: --models %s --voice %s --web %s%s\n' "$DSH_ROMEO_MODELS" "$DSH_ROMEO_VOICE" "$DSH_ROMEO_WEB" \
+  printf '  now: --models %s --voice %s --web %s --no-open %s%s\n' "$DSH_ROMEO_MODELS" "$DSH_ROMEO_VOICE" "$DSH_ROMEO_WEB" "$DSH_ROMEO_NO_OPEN" \
     "$([ -n "$ROMEO_PROJECT" ] && echo ", project $ROMEO_PROJECT" || echo ", no project (rerun install.sh)")"
 }
 
@@ -162,6 +172,10 @@ resolve_models() {
   case $DSH_ROMEO_WEB in
     on | off) ;;
     *) die "web: on or off, not '$DSH_ROMEO_WEB'" "dsh-romeo --web off" ;;
+  esac
+  case $DSH_ROMEO_NO_OPEN in
+    on | off) ;;
+    *) die "no-open: on or off, not '$DSH_ROMEO_NO_OPEN'" "dsh-romeo --open" ;;
   esac
   FICHES=$FICHE${SUB_FICHE:+ $SUB_FICHE}${VOICE_FICHE:+ $VOICE_FICHE}
 }
@@ -917,6 +931,14 @@ run_dsh() {
   clear_stored_key
   [ $# -gt 0 ] && shift
   export ROMEO_LLM_KEY
+  # The Web UI opens the browser unless dsh is told --no-open: the remembered choice, and only for
+  # the web profile (other apps have no such flag). A --no-open of this command line is kept once.
+  if [ "$profile" = web ] && [ "$DSH_ROMEO_NO_OPEN" = on ]; then
+    case " $* " in
+      *" --no-open "*) ;;
+      *) set -- "$@" --no-open ;;
+    esac
+  fi
   exec "$DSH" "$profile" --patch "$OVERLAY" "$@"
 }
 
@@ -1218,7 +1240,7 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
   repaired() { status_row "$1" fixed "$G" "$2"; fixed=1; }
   warn() { status_row "$1" warning "$Y" "$2"; }
   fail() { status_row "$1" failed "$R" "$2"; failed=1; }
-  say "doctor ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE --web $DSH_ROMEO_WEB${N}"
+  say "doctor ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE --web $DSH_ROMEO_WEB --no-open $DSH_ROMEO_NO_OPEN${N}"
   # This computer
   if command -v node >/dev/null; then
     v=$(node --version)
@@ -1315,7 +1337,7 @@ cmd_doctor() {  # each check on one row; exit 1 if one fails. Starts nothing on 
 }
 
 cmd_completion() {  # $1: bash or zsh. Options, then the values of --models, --voice and --completion.
-  local words="--models --voice --web --launch --desktop --run --serve --env --status --estimate --history --usage --clean --top --switch --stop --setup --logs --doctor --update --completion --version --help"
+  local words="--models --voice --web --no-open --open --launch --desktop --run --serve --env --status --estimate --history --usage --clean --top --switch --stop --setup --logs --doctor --update --completion --version --help"
   case ${1:-} in
     bash | zsh) ;;
     *) die "--completion takes bash or zsh" 'eval "$(dsh-romeo --completion zsh)"   # in ~/.zshrc' ;;
@@ -1351,7 +1373,7 @@ cmd_version() {
 cmd_status() {
   connect
   local url f jobs id st el left nodes start reason when target procs
-  say "status ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE --web $DSH_ROMEO_WEB${ROMEO_PROJECT:+, project $ROMEO_PROJECT}${N}"
+  say "status ${D}--models $DSH_ROMEO_MODELS --voice $DSH_ROMEO_VOICE --web $DSH_ROMEO_WEB --no-open $DSH_ROMEO_NO_OPEN${ROMEO_PROJECT:+, project $ROMEO_PROJECT}${N}"
   url=$(gateway_url)
   if [ -n "$url" ]; then status_row gateway running "$G" "$url"; else status_row gateway stopped "$Y" "${D}the next dsh-romeo starts it${N}"; fi
   if [ "$DSH_ROMEO_GATEWAY" = fast ]; then
@@ -2172,8 +2194,8 @@ update_offer() {
 main() {
   case "${1:-}" in -h | --help | -V | --version | --completion | --update | --env | --serve | headless) ;; *) update_offer "$@" ;; esac
   local launch=0 cmd=''
-  # --models, --voice, --launch [N] and --serve, --env, --desktop in any order; then a command and its own
-  # arguments (--run CMD ..., a dsh profile ...).
+  # --models, --voice, --web, --no-open, --launch [N] and --serve, --env, --desktop in any order;
+  # then a command and its own arguments (--run CMD ..., a dsh profile ...).
   while [ $# -gt 0 ]; do
     case $1 in
       --models)
@@ -2188,6 +2210,15 @@ main() {
         [ $# -ge 2 ] || die "--web takes on or off" "dsh-romeo --web on"
         remember DSH_ROMEO_WEB "$2" "$WEB_FILE"
         shift 2 ;;
+      --no-open)
+        shift
+        case ${1:-} in
+          on | off) remember DSH_ROMEO_NO_OPEN "$1" "$NO_OPEN_FILE"; shift ;;
+          *) remember DSH_ROMEO_NO_OPEN on "$NO_OPEN_FILE" ;;
+        esac ;;
+      --open)
+        remember DSH_ROMEO_NO_OPEN off "$NO_OPEN_FILE"
+        shift ;;
       --launch)
         shift
         launch=1

@@ -71,8 +71,9 @@ Host romeo
 | `dsh-romeo --models kimi ...` | the models, kept for the next runs (see below); options go in any order |
 | `dsh-romeo --voice on --launch` | voice input: dsh's microphone button, transcribed by Whisper on ROMEO (see below); kept for the next runs |
 | `dsh-romeo --web on` | web search through RustXNG on the ROMEO login node (see below); kept for the next runs |
+| `dsh-romeo --no-open` | dsh's Web UI without opening a browser: the URL is still printed, and any browser can open it; `--open` opens it again. Kept for the next runs, `--launch` included |
 
-`--launch [N]` (1 to 8 jobs; Kimi: 1) combines with the others, in any order with `--models`, `--voice`, `--serve`, `--env` and `--desktop`: `dsh-romeo --desktop --launch`, `dsh-romeo --launch --run opencode` (before `--run`, whose arguments are the client's). While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
+`--launch [N]` (1 to 8 jobs; Kimi: 1) combines with the others, in any order with `--models`, `--voice`, `--no-open`, `--serve`, `--env` and `--desktop`: `dsh-romeo --desktop --launch`, `dsh-romeo --launch --run opencode` (before `--run`, whose arguments are the client's). While the model loads, Ctrl-C stops waiting, not the job: run `dsh-romeo` again later.
 
 ## Models
 
@@ -129,7 +130,7 @@ On your computer instead, with Docker:
 
 ## Settings
 
-`install.sh` writes most of them to `~/.config/dsh-romeo/config`; a variable set in the environment wins. `--models` and `--voice` are remembered in `~/.config/dsh-romeo/models` and `voice`. Rarely needed: `DSH_ROMEO_POLL` (seconds between checks while a model loads, or while the voice watcher waits for the Whisper job), `DSH_ROMEO_NOTIFY=off` (no bell or desktop notification when a model is ready after a wait of `DSH_ROMEO_NOTIFY_AFTER`, 60 s), `NO_COLOR` (no colors), `DSH_ROMEO_SOCKET` (the SSH control socket), `DSH_ROMEO_DSH`, `DSH_ROMEO_DESKTOP_APP`, `DSH_ROMEO_DESKTOP_DSH` (which dsh and app to use), `DSH_ROMEO_CONFIG_DIR`, `ROMEOLLMTOOL`.
+`install.sh` writes most of them to `~/.config/dsh-romeo/config`; a variable set in the environment wins. `--models`, `--voice`, `--web` and `--no-open` are remembered in `~/.config/dsh-romeo/models`, `voice`, `web` and `no-open`. Rarely needed: `DSH_ROMEO_POLL` (seconds between checks while a model loads, or while the voice watcher waits for the Whisper job), `DSH_ROMEO_NOTIFY=off` (no bell or desktop notification when a model is ready after a wait of `DSH_ROMEO_NOTIFY_AFTER`, 60 s), `NO_COLOR` (no colors), `DSH_ROMEO_SOCKET` (the SSH control socket), `DSH_ROMEO_DSH`, `DSH_ROMEO_DESKTOP_APP`, `DSH_ROMEO_DESKTOP_DSH` (which dsh and app to use), `DSH_ROMEO_CONFIG_DIR`, `ROMEOLLMTOOL`.
 
 | Variable | Default | |
 |---|---|---|
@@ -137,6 +138,7 @@ On your computer instead, with Docker:
 | `ROMEO_SSH_HOST` | `romeo` | ssh alias of a ROMEO login node |
 | `DSH_ROMEO_MODELS` | `deepseek` | `deepseek`, `kimi` or `kimi+deepseek` (see [Models](#models)); the last `--models` wins over the config file |
 | `DSH_ROMEO_VOICE` | `off` | `on`: voice input with Whisper on ROMEO (see [Voice input](#voice-input)); the last `--voice` wins over the config file |
+| `DSH_ROMEO_NO_OPEN` | `off` | `on`: dsh's Web UI opens no browser (see [Commands](#commands)); the last `--no-open` or `--open` wins over the config file |
 | `DSH_ROMEO_VOICE_PORT` | `11319` | local port of the tunnel to the Whisper job |
 | `DSH_ROMEO_FICHE` | empty | a `romeollmtool` fiche of your own for the agent's model, e.g. `deepseek-v4.1-flash-vllm`, ROMEO's validated one (1 node, 262K context, longer to load) |
 | `DSH_ROMEO_TIME` | `08:00:00` | duration of a model job (24 h at most) |
